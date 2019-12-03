@@ -1,0 +1,69 @@
+{
+    "_meta": {
+        "_comment": "Meta data used to create host from custom script. Data will also get copied into '_snapshots' local context data",
+        "env_defaults": {
+            "dev": {},
+            "inf": {
+                "consul_cluster_ipv4": "127.0.0.1"
+            }
+        },
+        "host_descriptor": "kamlb",
+        "interfaces": {
+            "nic0": {
+                "mode": "Access",
+                "mtu": 9000,
+                "name": "ens192",
+                "primary": true,
+                "untagged_vlan": "",
+                "vsphere_port_group": "vlan-102"
+            }
+        },
+        "tags": {
+            "awx": {
+                "color": "2196f3",
+                "comments": "AWX ready devices/vms"
+            }
+        },
+        "terraform_module_source": "git@github.com:pasientskyhosting/terraform-modules.git//modules/base_coreos",
+        "terraform_module_version": "v1.0.0",
+        "time_zone": "Europe/Copenhagen"
+    },
+    "_snapshots": [
+        {
+            "_comment": "Snapshot of context payload. This is data that does not reside in netbox, but needs to be static until deployment",
+            "create_time": "2019-11-26T14:03:37.016117+00:00",
+            "deploy_time": "2019-11-26T14:03:37.016151+00:00",
+            "deployed_time": "",
+            "payload": {
+                "env": {
+                    "consul_cluster_ipv4": "127.0.0.1"
+                },
+                "terraform_module_source": "git@github.com:pasientskyhosting/terraform-modules.git//modules/base_coreos",
+                "terraform_module_version": "v1.0.0",
+                "time_zone": "Europe/Copenhagen"
+            },
+            "type": "bootstrap"
+        }
+    ],
+    "dns_domain_private": "privatedns.zone",
+    "dns_domain_public": "publicdns.zone",
+    "dns_servers": [
+        "8.8.8.8",
+        "8.8.4.4"
+    ],
+    "ntp_servers": [
+        "0.coreos.pool.ntp.org",
+        "1.coreos.pool.ntp.org",
+        "2.coreos.pool.ntp.org",
+        "3.coreos.pool.ntp.org"
+    ],
+    "ssh_authorized_keys": [
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCjcbd8KEujzX8cieLbd6TBsRS2mOdGf1FuQNPC22Ucg/qn0/aG8UK3/ZAhMw2RhhVObr5G2gnTxzcmQwDpnZ2rEK3QA2MoYM1NBYFmkqUudZED4Kf/CxBCH51l42Dmux50GMxdNR0bkjSH1R1f8CQwrIpiDXYLncihlXvGZy0IzVGBvML5gIcrIW3LflJu/LyjY7IbvA6t5GCNCnuFV56wUcfhcGMHpyX1If8w5+/DLmTcAS3I0120yWLw3k/+rS/TProJzIbzn9sNaKvsk6dJQw1aOANKSPrZ28//uYhPsq3qTwfhuzYjLEezd+w4uJOF4rKE5/o1r4Y4a1mnCzLtVMSxwUR7tP0ljXztRGovBtbgfEEri8ONpRCWYdHpVqUCaozW+2uQKwoccgZ4SJl3uqx60Xrqao625Mxoc86EnfTlq7N91mJJ3Nc33z+emKRrnE7P0Eh1k/RAW85AXIUDJbt5Fc20ATRiTOVLGpJTkrAphm+JHcaoo+YKzypR3r6upwsJVX1yXa8kBoSGbouAghAuRKx/IgEodSolIKDnq8KagJmBwXG9ussJpYHW607ZEMzNwwsFFEMQxyLzrVDznPNk4C88tyzpnI9Yli54KUGNehFIn0RVyN015T3KpxHVP+iciwBTo7DtDRZyjI8dfbaG3fePVok4K5B4lOVg2w== cardno:000606334270",
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCyVPmsLbWVQBWwVqFvDHFKLjmpIEsH2srRv+BGC8+O3EdyE4gwYnRtRNhALlQ1pADYh9VKNKTZqFzIiYFBvKuA2LIeJtBIwuMBjkJsN/pqDBkaFeV7H65aAIQn+a8csB7tvR09qxKKxTYdge9CJ1yiiQaCOu+6iObAeyKRvKoILl7yH92k0ARIA4KyGeOYOwxMYiWpL7QG4e8idmOwFaR+RV7nxZVPCw2oxRunu9+yw/39cRjLHqs6JwPzvvuTpJamxtqedBI4LGVeAONDUOcJWxtd1bZ68twRuXtFKRwuwYPSCRS51OihpPXOSnEy0UdzEo7cdL9zfMxUOGIIN5T1Rn3x8viB2bkaFIleNfg6W4igAiA2P86PPU8GdZZO3mhzfOdZS31sQAqaMoEnQdyaUUhaQ0SSPFEBL0xhAAGgvxZqJ8dmR+2zyhlkCXg347Eg4YrODfJKCMXhZYqc6eW7btMyo9vvr+t1YfrEJjmHwmTg82WC0kckOKeE7OhFCp25ANvdRmr6NpwlhYBbBtVh+m2TxnyWFlkvoKF7rTrshLfRFlcLKBUC0mktkkA5hxGybpKnO1bVVGykAQ3mR3jtjOR9je1XVLkIT5J/8S8cQUfsYqWqYhi3aoPB0e1IaMM2GzXF7GFKUhlG/QkvJLB335t0VDT+O1iVScyfFu1MIQ== cardno:000606334268",
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDIPDXYn8jEOWf1n1YdrAfzSY+WGaTOtYfSBkT+etfbXBPnYIcKkKNdj2eNaX5ZxyYfW8HniKuKMmVwbZ8MRAhu9ZJaSySAskxCX0Q7CESMY6JeqUkTM1Bv2sJgwmN8qD5/U9BovnEwAxzqYt++ZSVYOFjhn0isMgN6aee7QlsK591slvUh/23ZVq6snL9YWf2rYpsMQKBuK05ZPvLZhuWUlqh7M5ea2nKDifJ6iS6cEbQphUWIS0Y62cXKefAMuBSiT/KbBEaK3qSTpT8ibMPHWa2ilZwWfFi6OBY6LNwGxKrUWkF90oR7ezzewSFKJblAjhv/W8nLs5y0vH3JhYY+iVlhQdtV/7UxjElI2f+Ea3JZ5Fliw0DDZzYh750mtUSeHOjvyKTSsKFj/yc1AT/Xg0hBdN7mVYZKl5uDQdlcZBSDc61sI5YRH4FH0g6YRcbPG7yR1JWukFpp00+hRHTUL0D1dQeOWuG5ptvPuzy6Ws2TCA+G8TcJrSNZlXCfgtFNLYVhhDc2mhFESX8f4lqU+H7Gk8kQ60ugD+hCLMKDfcfLB8mXCO4vb9tmWKmg1O9KJki7Q02iDKbCu7E07xoiLcLVFtk2f/CX3+iANqrtRuhUOPlbUPTap47esIY7nUGdHPerEndD4Smf2a8lN1YntPYsSLeKhyBXOzLvMmaDZw== cardno:000606704887",
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCgzayHEZ0hUnfPJpVWvdRLfNA/kxqNjX4bDzYJkuVvLI48jL3aWrC5A5AcikBRBLewc8MptS4iK5vyZKiaJETlMO2EXBwJQRAo4zGuWlr76pDZ9pb5f4VT3INBZ+yj7vxkuKq8/wA6MuHwJegrNwkCIY6TGym3wwLU+XJ6fb896BJYEXOR2RdPhKBoYzN3R44gAtCyt5kmyVX5gvrfpMJIq4+qHj/Ynh/dlHZpvl2R2f/P+H/ZeaNshOuSUSnW43znL8WjN+T03Mpqq5ZNtgRkXACC2x6BjEpgvfSlclleW36ALIqzCitGbc2cbd336d5vqlfHoqZyUcWN9b5Nl9m8/QW8VUVM7GiPltcty3LZ93DG1cfmVI8FPeG2QL/QMj75K+7Sry2w/EVeSldhVBHTDm9fhVzJM+qKazV3a6g1h5F7WZRUM6fBosrpvmz6nMpwXojVC4aDcM0WRy7CkCNb5UnAGWwqikRotTTQUJUan3Pox9rKg9EHwk8odZNFO16XOO0lM3g9AMGJ/Cq41n4x0UwZWRTNrNNpZiqXjgiAR6ObbXc558PMnJ5I/FAeSl2z6nybM7Kw3Nu1Gc5lrrqKnXruHpkPi9fmY5auWG/F1Hd1oU/4XynsdEL8+Pl/P1X4IOlZsSwdF0WtgPTskeqD7haqabPWs8CT1K0r+P4xKw== cardno:000606334252",
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC0O9+4M8WrffRn0qk3OzLNBWG2w9jaCbPULJbsZbsF1evq5V5aC+b3Y+aC7k1gMatoZgrt9UqQjX7k/PQxnBcxQ4CEmgnkB0FYxhULp0L2lIKehcULjoYsW7guXj4moc0Kyh33QShMDz95E5RMR/Z3wl/yojs9+WwmgkC5mb1Zj2KJWTzOOM8Ao+kGf9kelX+uxhqS8z4UCxKJnkBTHZ8kmHbUgtycJgqLWNINNs8KIgfVswTlYqGf4Ez/MIpVDBfGESXpntXD+xLOmjEQvVL7dDfOAY8jZi6wklYDm3/X/M4RBKAlLlBhGR2W36BSi273uG/yt8gOFq5QdjYJ0PNo8XR/phwOr+0UruXQjRJ+UXU7fjtRwCFeFIfYY+DnHfCx5AkzQaVS5Nn7dAwdv0i7Xj0bzJO6zUY096FCWj2tUa8EB3rx8bOIAzypEj2d/qTCUjg2PTHC9tjD8wakq+sl113NPGW4QNmyU+g0cKpI/qWdE9b4rqqMqHppkp1ULKMBW7QsnV5tTKp8qD7PkrHqmT1XIqC/3oVgPL0EJReb2ItM20J04oRVF1HDYx85ET5SAw84t4kKFvjLbJkKGnOQg2KXPPmt21FdECdDeCeFFcjXG1TWTu1cdT41h8+fK+lGaYXC2XeQgriDawfucWwVmZjYmv4YXaqT3ymZ551qHw== cardno:000606708520",
+        "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDmfgc5czWFYVAprvIXg+YZpzz1uUsrumuCThx13GyJOltkwNzmw3GH4SXpcuCMC2U4uHDyXW2XnHHwkVSQ2naym6IN3wMg/bnXq9GEj3AwNP13QIj6obEELWjOaupQVSRHFrkgY26Pzu6S07DAZRxOuedYalFASgo9hxv2ESLa6lQE/S2NUFWD7dFF+2Oxb3pE0WDsUM514a8vEunVZJr6qu4/+5cTr81T7B9ET2Dg7MDddgVjcyer45yYCGHvinHYfqkUeLRVB0miazghD1e2sIigkSTJF7hC+yAdczHVTfl94hLRYACqG0mi47OhY8W4dZuPgFTqOju1l2vd//sOdKHgSroDE3Nzxb9TYnLkf8sl6PH5VFAyEOYxOH3sW5X+rjI+XJKKmHKbIowRsqzQU4J109e1jwudQW5XB7owVhlR5svSBF3sn307SAVC6jgigW9Fl2stdrSPHygucNE0K14VrkC8eCUcAP2Fx243a9/Upk6ABQG5rruNGML+yBBVMXTFZyjFcxH4TPvHeJitNzkNgYd0VTdJAq6pFvpfemASvDHTnLCRsdsXnHJ9LjVD6lZyor0nB4zog+NuMmzwvVIEtJcG0ObIB8mfsArVs0mRP4b049k/ik2u6wpIgnQDx2UJG6mWA8JPCi4gknxyQ0xFJ4vJpH6NHgAjOAhBrQ== cardno:000606708508"
+    ],
+    "ssh_port": ""
+}
