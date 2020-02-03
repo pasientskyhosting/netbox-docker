@@ -1,0 +1,463 @@
+import netaddr
+
+from dcim.choices import InterfaceTypeChoices, DeviceStatusChoices, InterfaceModeChoices
+from dcim.models import Platform, DeviceRole, Site
+from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
+from tenancy.models import Tenant
+from virtualization.models import VirtualMachine, Cluster
+from virtualization.choices import VirtualMachineStatusChoices
+from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar, BooleanVar
+from extras.models import Tag
+import datetime
+
+
+class DeployVM(Script):
+
+    env = ""
+    env_defaults = []
+    host_descriptor = ""
+    interfaces = []
+    terraform_module_source = ""
+    terraform_module_version = ""
+    time_zone = ""
+    dns_domain_private = ""
+    dns_domain_public = ""
+    dns_servers = []
+    ntp_servers = []
+    ssh_authorized_keys = []
+    ssh_port = ""
+    _default_interface = {}
+    __snapshot_data = ""
+    tags = []
+    output = []
+    success_log = ""
+
+    class Meta:
+        name = "Deploy new VMs"
+        description = "Deploy new virtual machines from existing platforms and roles using AWX"
+        fields = ['tenant', 'cluster', 'env', 'ip_addresses', 'auto_ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'device_status', 'hostnames']
+        field_order = ['tenant', 'cluster', 'env', 'platform', 'role', 'device_status', 'vm_count', 'vcpus', 'memory', 'disk', 'ip_addresses', 'auto_ip_addresses', 'hostnames', 'ssh_authorized_keys']
+        commit_default = False
+
+    tenant = ObjectVar(
+        default="patientsky-hosting",
+        description="Name of the tenant the VMs beloing to",
+        queryset=Tenant.objects.filter()
+    )
+
+    cluster = ObjectVar(
+        default="odn1",
+        description="Name of the vSphere cluster you are deploying to",
+        queryset=Cluster.objects.filter()
+    )
+
+    env = ChoiceVar(
+        label="Environment",
+        description="Environment to deploy VM",
+        default="vlb",
+        choices=(
+            ('pno', 'pno'),
+            ('inf', 'inf'),
+            ('stg', 'stg'),
+            ('dev', 'dev'),
+            ('hem', 'hem'),
+            ('hov', 'hov'),
+            ('hpl', 'hpl'),
+            ('mgt', 'mgt'),
+            ('cse', 'cse'),
+            ('qua', 'qua'),
+            ('dmo', 'dmo'),
+            ('vlb', 'vlb'),
+            ('cmi', 'cmi')
+        )
+    )
+
+    platform = ObjectVar(
+        default="coreos_2079.4.0",
+        description="Base image to deploy",
+        queryset=Platform.objects.filter(
+            name__in=['coreos_2079.4.0', 'vSphere vCenter Appliance']
+        )
+    )
+
+    role = ObjectVar(
+        label="VM Role",
+        description="VM Role",
+        queryset=DeviceRole.objects.filter(
+            vm_role=True
+        )
+    )
+
+    ip_addresses = TextVar(        
+        required=False,
+        label="IP Addresses",
+        description="List of IP addresses to create. If none given, 'auto-assign' must be checked"
+    )
+
+    auto_ip_addresses = BooleanVar(        
+        label="Auto assign IPs",
+        description="Will auto assign IPs if a default prefix exists for role",
+        default=False
+    )
+
+    hostnames = TextVar(        
+        required=False,
+        label="Hostnames",
+        description="List of hostnames to create. If none given, hostnames be auto-assigned from role context data"
+    )
+
+    ssh_authorized_keys = TextVar(
+        label="SSH Authorized Keys",
+        required=False,
+        description="List of accepted SSH keys - defaults to site config context 'ssh_authorized_keys'"
+    )
+
+    vm_count = ChoiceVar(
+        label="Number of VMs",
+        description="Number of VMs to deploy",
+        choices=(
+            ('1', '1'),
+            ('2', '2'),
+            ('3', '3'),
+            ('4', '4'),
+            ('5', '5'),
+            ('6', '6'),
+            ('7', '7'),
+            ('8', '8'),
+            ('9', '9'),
+            ('10', '10')
+        )
+    )
+
+    vcpus = ChoiceVar(
+        label="Number of CPUs",
+        description="Number of virtual CPUs",
+        default="2",
+        choices=(
+            ('1', '1'),
+            ('2', '2'),
+            ('3', '3'),
+            ('4', '4'),
+            ('5', '5'),
+            ('6', '6'),
+            ('7', '7'),
+            ('8', '8')
+        )
+    )
+
+    memory = ChoiceVar(
+        description="Amount of VM memory",
+        default="4096",
+        choices=(
+            ('1024', '1024'),
+            ('2048', '2048'),
+            ('4096', '4096'),
+            ('8192', '8192'),
+            ('16384', '16384'),
+            ('32768', '32768')
+        )
+    )
+
+    device_status = ChoiceVar(
+        label="VM Status",
+        description="Stage for later deployment",
+        default=VirtualMachineStatusChoices.STATUS_ACTIVE,
+        choices=(
+            (VirtualMachineStatusChoices.STATUS_STAGED, "Staged"),
+            (VirtualMachineStatusChoices.STATUS_ACTIVE, "Active")
+        )
+    )
+
+    disk = IntegerVar(
+        label="Disk size",
+        description="Disk size in GB",
+        default="20"
+    )
+
+    def appendLogSuccess(self, log: str, obj=None):
+        self.success_log += " {} `\n{}\n`".format(log, obj)
+        return self
+
+    def flushLogSuccess(self):
+        self.log_success(self.success_log)
+        self.success_log = ""
+        return self
+
+    def __parseBaseContextData(self, base_context_data):
+
+        try:
+            self.host_descriptor = base_context_data['host_descriptor']
+            self.interfaces = base_context_data['interfaces']
+            self.terraform_module_source = base_context_data['terraform_module_source']
+            self.terraform_module_version = base_context_data['terraform_module_version']
+            self.time_zone = base_context_data['time_zone']
+            self.env_defaults = base_context_data['env_defaults']
+            self.tags = base_context_data['tags']
+            self.dns_domain_private = base_context_data['dns_domain_private']
+            self.dns_domain_public = base_context_data['dns_domain_public']
+            self.dns_servers = base_context_data['dns_servers']
+            self.ntp_servers = base_context_data['ntp_servers']
+            self.ssh_authorized_keys = base_context_data['ssh_authorized_keys']
+            self.ssh_port = base_context_data['ssh_port']
+            self.tags.update({'env_'+self.env: {'comments': 'Environment', 'color': '009688'}})
+        except Exception:
+            self.log_failure("Error when parsing context_data!")
+            return False
+
+        self.__setSnapshotContextData()
+
+        return True
+
+    def __setSnapshotContextData(self):
+        """
+        The only data we need saved in _snapshots is data that cannot be saved in Netbox
+        """
+
+        self.__snapshot_data = {
+            "_snapshots": [
+                {
+                    "_comment": "Snapshot of context payload. This is data that does not reside in netbox, but needs to be static until deployment",
+                    "create_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+                    "deploy_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+                    "deployed_time": "",
+                    "payload": {
+                        "time_zone": self.time_zone,
+                        "env": self.env_defaults[self.env] if self.env in self.env_defaults else {},
+                        "terraform_module_source": self.terraform_module_source,
+                        "terraform_module_version": self.terraform_module_version,
+                    },
+                    "type": "bootstrap"
+                }
+            ]
+        }
+
+    def _generateHostname(self, cluster, env, descriptor):
+
+        # I now proclaim this VM, First of its Name, Queen of the Andals and the First Men, Protector of the Seven Kingdoms
+        vm_index = "001"
+
+        search_for = str(cluster)+'-'+env+'-'+descriptor+'-'
+        vms = VirtualMachine.objects.filter(
+            name__startswith=search_for
+        )
+
+        if len(vms) > 0:
+            # Get last of its kind
+            last_vm_index = int(vms[len(vms)-1].name.split('-')[3])+1
+            if last_vm_index < 10:
+                vm_index = '00'+str(last_vm_index)
+            elif last_vm_index < 100:
+                vm_index = '0'+str(last_vm_index)
+            else:
+                vm_index = str(last_vm_index)
+
+        hostname = str(cluster)+'-'+env+'-'+descriptor+'-'+vm_index
+
+        return hostname
+
+    def __validateInput(self, data):
+
+        if self.host_descriptor is None:
+            self.log_failure("No host_descriptor context data!")
+            return False
+
+        if self.host_descriptor is None and len(data['hostnames']) == 0:
+            self.log_failure("No hostnames were given and host descriptor does not exist for this role!")
+            return False
+
+        if self.interfaces is None:
+            self.log_failure("No interfaces object in context data!")
+            return False
+
+        if data['ip_addresses'] != "" and len(data['ip_addresses'].splitlines()) != int(data['vm_count']):
+            self.log_failure("The number of IP addresses and VMs does not match!")
+            return False
+
+        if data['hostnames'] != "" and len(data['hostnames'].splitlines()) != int(data['vm_count']):
+            self.log_failure("The number of hostnames and VMs does not match!")
+            return False
+
+        if self.interfaces is None:
+            self.log_failure("No interfaces object in context data!")
+            return False
+        return True
+
+    def run(self, data):
+
+        vrf = VRF.objects.get(
+            name="global"
+        )
+
+        self.env = data['env']
+
+        # Setup base virtual machine
+        base_vm = VirtualMachine(
+            status=data['device_status'],
+            cluster=data['cluster'],
+            platform=data['platform'],
+            role=data['role'],
+            tenant=data['tenant'],
+        )
+
+        # Set snapshot context data.
+        if self.__parseBaseContextData(base_context_data=base_vm.get_config_context()) is False:
+            return False
+
+        if self.__validateInput(data=data) is False:
+            return False
+
+        for i in range(0, int(data['vm_count'])):
+
+            hostnames = data['hostnames'].splitlines()
+            ip_addresses = data['ip_addresses'].splitlines()
+
+            if len(hostnames) > 0:
+                hostname = hostnames[i]
+            else:
+                hostname = self._generateHostname(
+                    cluster=data['cluster'].name,
+                    env=self.env,
+                    descriptor=self.host_descriptor
+                )
+
+            # Check if VM exists
+            if len(VirtualMachine.objects.filter(name=hostname)) > 0:
+                self.log_failure("VM with hostname "+hostname+" already exists!")
+                return False
+
+            if len(ip_addresses) > 0:
+
+                # Check if IP address exists
+                ip_check = IPAddress.objects.filter(
+                    address=ip_addresses[i]
+                )
+
+                if len(ip_check) > 0:
+                    self.log_failure(str(ip_check[0].address) + ' is already assigned to ' + str(ip_check[0].interface.name))
+                    return False
+
+                domain = self.dns_domain_private if netaddr.IPNetwork(ip_addresses[i]).is_private() is True else self.dns_domain_public
+                ip_address = IPAddress(
+                    address=ip_addresses[i],
+                    vrf=vrf,
+                    tenant=data['tenant'],
+                    family=4,
+                    dns_name=hostname+'.'+domain,
+                )
+
+                ip_address.save()
+                self.appendLogSuccess(log="Created IP", obj=ip_addresses[i]).appendLogSuccess(log="DNS", obj=hostname+'.'+domain)
+            else:
+                if data['auto_ip_addresses'] is True:
+
+                    try:
+                        # Auto assign IPs from vsphere_port_group
+                        prefix = Prefix.objects.get(
+                            vlan=VLAN.objects.get(name=self.interfaces['nic0']['vsphere_port_group']),
+                            site=Site.objects.get(name=data['cluster'].site.name),
+                            is_pool=True
+                        )
+
+                        ip = prefix.get_first_available_ip()
+
+                        domain = self.dns_domain_private if netaddr.IPNetwork(ip).is_private() is True else self.dns_domain_public
+                        ip_address = IPAddress(
+                            address=ip,
+                            vrf=vrf,
+                            tenant=data['tenant'],
+                            family=4,
+                            dns_name=hostname+'.'+domain,
+                        )
+
+                        ip_address.save()
+                        self.appendLogSuccess(log="Auto-assigned IP", obj=ip).appendLogSuccess(log="DNS", obj=hostname+'.'+domain)
+                    except Exception:
+                        self.log_failure("An error occurred while auto-assigning IP address. VLAN or Prefix not found!")
+                        return False
+                else:
+                    self.log_failure("No IP address choice was made")
+                    return False
+
+            vm = VirtualMachine(
+                status=data['device_status'],
+                cluster=data['cluster'],
+                platform=data['platform'],
+                role=data['role'],
+                tenant=data['tenant'],
+                name=hostname,
+                disk=data['disk'],
+                memory=data['memory'],
+                vcpus=data['vcpus'],
+                local_context_data=self.__snapshot_data
+            )
+
+            vm.primary_ip4 = ip_address
+            vm.save()
+            self.appendLogSuccess(log="for VM in ", obj=vm.cluster)
+
+            self.__assignTags(vm=vm)
+
+            # Assign IP to interface
+            if self.__setupInterface(ip_address=ip_address, data=data, vm=vm) is False:
+                return False
+
+            self.flushLogSuccess()
+
+        return self.success_log
+
+    def __assignTags(self, vm: VirtualMachine):
+        """
+        Assign tags from context data
+        """
+        for tag in self.tags:
+            if len(Tag.objects.filter(name=tag)) == 0:
+                color = self.tags[tag]['color'] if 'color' in self.tags[tag] else '9e9e9e'
+                comments = self.tags[tag]['comments'] if 'comments' in self.tags[tag] else 'No comments'
+                newTag = Tag(comments=comments, name=tag, color=color)
+                newTag.save()
+
+            vm.tags.add(tag)
+
+        vm.save()
+
+    def __setupInterface(self, ip_address: IPAddress, vm: VirtualMachine, data):
+        """
+        Setup interface and add IP address
+        """
+
+        # Get net address tools
+        ip = netaddr.IPNetwork(ip_address.address)
+        prefix_search = str(ip.network)+'/'+str(ip.prefixlen)
+
+        try:
+            prefix = Prefix.objects.get(
+                prefix=prefix_search,
+                is_pool=True
+            )
+        except Exception:
+            self.log_failure("Prefix for IP " + ip_address.address + " was not found")
+            return False
+
+        # Right now we dont support multiple nics. But the data model supports it
+        interface = Interface(
+            name=self.interfaces['nic0']['name'],
+            mtu=self.interfaces['nic0']['mtu'],
+            virtual_machine=vm,
+            type=InterfaceTypeChoices.TYPE_VIRTUAL
+        )
+
+        # If we need anything othger than Access, here is were to change it
+        if self.interfaces['nic0']['mode'] == "Access":
+            interface.mode = InterfaceModeChoices.MODE_ACCESS
+            interface.untagged_vlan = prefix.vlan
+            self.interfaces['nic0']['vsphere_port_group'] = prefix.vlan.name
+
+        interface.save()
+
+        # Add interface to IP address
+        ip_address.interface = interface
+        ip_address.save()
+
+        self.appendLogSuccess(log="with interface ", obj=interface).appendLogSuccess(log=", vlan ", obj=prefix.vlan.name)
+
+        return True
