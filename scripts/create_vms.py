@@ -7,7 +7,7 @@ from tenancy.models import Tenant
 from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar, BooleanVar
-from extras.models import Tag
+from extras.models import Tag, ConfigContextModel
 import datetime
 
 
@@ -291,17 +291,19 @@ class DeployVM(Script):
         self.env = data['env']
 
         # Setup base virtual machine
-        base_vm = VirtualMachine(
-            status=data['device_status'],
+        base_vm = VirtualMachine(            
             cluster=data['cluster'],
             platform=data['platform'],
             role=data['role'],
             tenant=data['tenant'],
+            name="hueiulflhhrf"
         )
+        base_vm.save()
 
         # Set snapshot context data.
         if self.__parseBaseContextData(base_context_data=base_vm.get_config_context()) is False:
             return False
+            exit
 
         if self.__validateInput(data=data) is False:
             return False
