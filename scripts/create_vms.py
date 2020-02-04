@@ -1,13 +1,13 @@
 import netaddr
 
-from dcim.choices import InterfaceTypeChoices, DeviceStatusChoices, InterfaceModeChoices
+from dcim.choices import InterfaceTypeChoices, InterfaceModeChoices
 from dcim.models import Platform, DeviceRole, Site
 from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
 from tenancy.models import Tenant
 from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar, BooleanVar
-from extras.models import Tag, ConfigContextModel
+from extras.models import Tag
 import datetime
 
 
@@ -27,7 +27,6 @@ class DeployVM(Script):
     ssh_authorized_keys = []
     ssh_port = ""
     _default_interface = {}
-    __snapshot_data = ""
     tags = []
     output = []
     success_log = ""
@@ -35,8 +34,8 @@ class DeployVM(Script):
     class Meta:
         name = "Deploy new VMs"
         description = "Deploy new virtual machines from existing platforms and roles using AWX"
-        fields = ['tenant', 'cluster', 'env', 'ip_addresses', 'auto_ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'device_status', 'hostnames']
-        field_order = ['tenant', 'cluster', 'env', 'platform', 'role', 'device_status', 'vm_count', 'vcpus', 'memory', 'disk', 'ip_addresses', 'auto_ip_addresses', 'hostnames', 'ssh_authorized_keys']
+        fields = ['tenant', 'cluster', 'env','untagged_vlan', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'device_status', 'hostnames']
+        field_order = ['tenant', 'cluster', 'env', 'platform', 'role', 'device_status', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
         commit_default = False
 
     tenant = ObjectVar(
@@ -91,19 +90,20 @@ class DeployVM(Script):
     ip_addresses = TextVar(        
         required=False,
         label="IP Addresses",
-        description="List of IP addresses to create. If none given, 'auto-assign' must be checked"
+        description="List of IP addresses to create w. prefix e.g 192.168.0.10/24. If none given, hosts will be assigned IPs automagically"
     )
 
-    auto_ip_addresses = BooleanVar(        
-        label="Auto assign IPs",
-        description="Will auto assign IPs if a default prefix exists for role",
-        default=False
+    untagged_vlan = ObjectVar(
+        required=False,
+        label="VLAN",
+        description="Choose VLAN to auto-assign IPs or manually assign IPs below",
+        queryset=VLAN.objects.filter()
     )
 
     hostnames = TextVar(        
-        required=False,
+        required=True,
         label="Hostnames",
-        description="List of hostnames to create. If none given, hostnames be auto-assigned from role context data"
+        description="List of hostnames to create."
     )
 
     ssh_authorized_keys = TextVar(
@@ -183,7 +183,53 @@ class DeployVM(Script):
         self.success_log = ""
         return self
 
-    def __parseBaseContextData(self, base_context_data):
+    # def __setSnapshotContextData(self):
+    #     """
+    #     The only data we need saved in _snapshots is data that cannot be saved in Netbox
+    #     """
+
+    #     self.__snapshot_data = {
+    #         "_snapshots": [
+    #             {
+    #                 "_comment": "Snapshot of context payload. This is data that does not reside in netbox, but needs to be static until deployment",
+    #                 "create_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+    #                 "deploy_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+    #                 "deployed_time": "",
+    #                 "payload": {
+    #                     "env": self.env_defaults[self.env] if self.env in self.env_defaults else {},
+    #                     "terraform_module_source": self.terraform_module_source,
+    #                     "terraform_module_version": self.terraform_module_version,
+    #                 },
+    #                 "type": "bootstrap"
+    #             }
+    #         ]
+    #     }
+
+    def _generateHostname(self, cluster, env, descriptor):
+
+        # I now proclaim this VM, First of its Name, Queen of the Andals and the First Men, Protector of the Seven Kingdoms
+        vm_index = "001"
+
+        search_for = str(cluster) + '-' + env + '-' + descriptor + '-'
+        vms = VirtualMachine.objects.filter(
+            name__startswith=search_for
+        )
+
+        if len(vms) > 0:
+            # Get last of its kind
+            last_vm_index = int(vms[len(vms) - 1].name.split('-')[3]) + 1
+            if last_vm_index < 10:
+                vm_index = '00' + str(last_vm_index)
+            elif last_vm_index < 100:
+                vm_index = '0' + str(last_vm_index)
+            else:
+                vm_index = str(last_vm_index)
+
+        hostname = str(cluster) + '-' + env + '-' + descriptor + '-' + vm_index
+
+        return hostname
+
+    def __validateInput(self, data, base_context_data):
 
         try:
             self.host_descriptor = base_context_data['host_descriptor']
@@ -199,63 +245,10 @@ class DeployVM(Script):
             self.ntp_servers = base_context_data['ntp_servers']
             self.ssh_authorized_keys = base_context_data['ssh_authorized_keys']
             self.ssh_port = base_context_data['ssh_port']
-            self.tags.update({'env_'+self.env: {'comments': 'Environment', 'color': '009688'}})
-        except Exception:
-            self.log_failure("Error when parsing context_data!")
+            self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
+        except Exception as error:
+            self.log_failure("Error when parsing context_data! Error: " + str(error))
             return False
-
-        self.__setSnapshotContextData()
-
-        return True
-
-    def __setSnapshotContextData(self):
-        """
-        The only data we need saved in _snapshots is data that cannot be saved in Netbox
-        """
-
-        self.__snapshot_data = {
-            "_snapshots": [
-                {
-                    "_comment": "Snapshot of context payload. This is data that does not reside in netbox, but needs to be static until deployment",
-                    "create_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
-                    "deploy_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
-                    "deployed_time": "",
-                    "payload": {
-                        "time_zone": self.time_zone,
-                        "env": self.env_defaults[self.env] if self.env in self.env_defaults else {},
-                        "terraform_module_source": self.terraform_module_source,
-                        "terraform_module_version": self.terraform_module_version,
-                    },
-                    "type": "bootstrap"
-                }
-            ]
-        }
-
-    def _generateHostname(self, cluster, env, descriptor):
-
-        # I now proclaim this VM, First of its Name, Queen of the Andals and the First Men, Protector of the Seven Kingdoms
-        vm_index = "001"
-
-        search_for = str(cluster)+'-'+env+'-'+descriptor+'-'
-        vms = VirtualMachine.objects.filter(
-            name__startswith=search_for
-        )
-
-        if len(vms) > 0:
-            # Get last of its kind
-            last_vm_index = int(vms[len(vms)-1].name.split('-')[3])+1
-            if last_vm_index < 10:
-                vm_index = '00'+str(last_vm_index)
-            elif last_vm_index < 100:
-                vm_index = '0'+str(last_vm_index)
-            else:
-                vm_index = str(last_vm_index)
-
-        hostname = str(cluster)+'-'+env+'-'+descriptor+'-'+vm_index
-
-        return hostname
-
-    def __validateInput(self, data):
 
         if self.host_descriptor is None:
             self.log_failure("No host_descriptor context data!")
@@ -290,23 +283,25 @@ class DeployVM(Script):
 
         self.env = data['env']
 
-        # Setup base virtual machine
+        # Setup base virtual machine for copying config_context
         base_vm = VirtualMachine(            
             cluster=data['cluster'],
             platform=data['platform'],
             role=data['role'],
             tenant=data['tenant'],
-            name="hueiulflhhrf"
+            name="script_temp"
         )
+
         base_vm.save()
 
-        # Set snapshot context data.
-        if self.__parseBaseContextData(base_context_data=base_vm.get_config_context()) is False:
+        if self.__validateInput(data=data, base_context_data=base_vm.get_config_context()) is False:
             return False
-            exit
 
-        if self.__validateInput(data=data) is False:
-            return False
+        # Delete base virtual machine for copying config_context
+        vm_delete = VirtualMachine.objects.get(
+            name="script_temp"
+        )
+        vm_delete.delete()
 
         for i in range(0, int(data['vm_count'])):
 
@@ -324,7 +319,7 @@ class DeployVM(Script):
 
             # Check if VM exists
             if len(VirtualMachine.objects.filter(name=hostname)) > 0:
-                self.log_failure("VM with hostname "+hostname+" already exists!")
+                self.log_failure("VM with hostname " + hostname + " already exists!")
                 return False
 
             if len(ip_addresses) > 0:
@@ -344,18 +339,19 @@ class DeployVM(Script):
                     vrf=vrf,
                     tenant=data['tenant'],
                     family=4,
-                    dns_name=hostname+'.'+domain,
+                    dns_name=hostname + '.' + domain,
                 )
 
                 ip_address.save()
-                self.appendLogSuccess(log="Created IP", obj=ip_addresses[i]).appendLogSuccess(log="DNS", obj=hostname+'.'+domain)
+                self.appendLogSuccess(log="Created IP", obj=ip_addresses[i]).appendLogSuccess(log="DNS", obj=hostname + '.' + domain)
             else:
-                if data['auto_ip_addresses'] is True:
+                if data['untagged_vlan'] is not None:
 
                     try:
+
                         # Auto assign IPs from vsphere_port_group
                         prefix = Prefix.objects.get(
-                            vlan=VLAN.objects.get(name=self.interfaces['nic0']['vsphere_port_group']),
+                            vlan=data['untagged_vlan'],
                             site=Site.objects.get(name=data['cluster'].site.name),
                             is_pool=True
                         )
@@ -368,11 +364,11 @@ class DeployVM(Script):
                             vrf=vrf,
                             tenant=data['tenant'],
                             family=4,
-                            dns_name=hostname+'.'+domain,
+                            dns_name=hostname + '.' + domain,
                         )
 
                         ip_address.save()
-                        self.appendLogSuccess(log="Auto-assigned IP", obj=ip).appendLogSuccess(log="DNS", obj=hostname+'.'+domain)
+                        self.appendLogSuccess(log="Auto-assigned IP", obj=ip).appendLogSuccess(log="DNS", obj=hostname + '.' + domain)
                     except Exception:
                         self.log_failure("An error occurred while auto-assigning IP address. VLAN or Prefix not found!")
                         return False
@@ -389,8 +385,7 @@ class DeployVM(Script):
                 name=hostname,
                 disk=data['disk'],
                 memory=data['memory'],
-                vcpus=data['vcpus'],
-                local_context_data=self.__snapshot_data
+                vcpus=data['vcpus']
             )
 
             vm.primary_ip4 = ip_address
@@ -429,7 +424,7 @@ class DeployVM(Script):
 
         # Get net address tools
         ip = netaddr.IPNetwork(ip_address.address)
-        prefix_search = str(ip.network)+'/'+str(ip.prefixlen)
+        prefix_search = str(ip.network) + '/' + str(ip.prefixlen)
 
         try:
             prefix = Prefix.objects.get(
@@ -448,7 +443,7 @@ class DeployVM(Script):
             type=InterfaceTypeChoices.TYPE_VIRTUAL
         )
 
-        # If we need anything othger than Access, here is were to change it
+        # If we need anything other than Access, here is were to change it
         if self.interfaces['nic0']['mode'] == "Access":
             interface.mode = InterfaceModeChoices.MODE_ACCESS
             interface.untagged_vlan = prefix.vlan
