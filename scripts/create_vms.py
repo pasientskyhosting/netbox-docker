@@ -14,8 +14,6 @@ import datetime
 class DeployVM(Script):
 
     env = ""
-    env_defaults = []
-    host_descriptor = ""
     interfaces = []
     terraform_module_source = ""
     terraform_module_version = ""
@@ -232,12 +230,10 @@ class DeployVM(Script):
     def __validateInput(self, data, base_context_data):
 
         try:
-            self.host_descriptor = base_context_data['host_descriptor']
             self.interfaces = base_context_data['interfaces']
             self.terraform_module_source = base_context_data['terraform_module_source']
             self.terraform_module_version = base_context_data['terraform_module_version']
             self.time_zone = base_context_data['time_zone']
-            self.env_defaults = base_context_data['env_defaults']
             self.tags = base_context_data['tags']
             self.dns_domain_private = base_context_data['dns_domain_private']
             self.dns_domain_public = base_context_data['dns_domain_public']
@@ -248,14 +244,6 @@ class DeployVM(Script):
             self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
         except Exception as error:
             self.log_failure("Error when parsing context_data! Error: " + str(error))
-            return False
-
-        if self.host_descriptor is None:
-            self.log_failure("No host_descriptor context data!")
-            return False
-
-        if self.host_descriptor is None and len(data['hostnames']) == 0:
-            self.log_failure("No hostnames were given and host descriptor does not exist for this role!")
             return False
 
         if self.interfaces is None:
@@ -314,7 +302,7 @@ class DeployVM(Script):
                 hostname = self._generateHostname(
                     cluster=data['cluster'].name,
                     env=self.env,
-                    descriptor=self.host_descriptor
+                    descriptor="na"
                 )
 
             # Check if VM exists
