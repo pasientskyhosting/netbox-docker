@@ -33,8 +33,8 @@ class DeployVM(Script):
     class Meta:
         name = "Deploy new VMs"
         description = "Deploy new virtual machines from existing platforms and roles using AWX"
-        fields = ['tenant', 'cluster', 'env','untagged_vlan', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'device_status', 'hostnames']
-        field_order = ['tenant', 'cluster', 'env', 'platform', 'role', 'device_status', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
+        fields = ['tenant', 'cluster', 'env','untagged_vlan', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
+        field_order = ['tenant', 'cluster', 'env', 'platform', 'role', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
         commit_default = False
 
     tenant = ObjectVar(
@@ -154,16 +154,6 @@ class DeployVM(Script):
             ('8192', '8192'),
             ('16384', '16384'),
             ('32768', '32768')
-        )
-    )
-
-    device_status = ChoiceVar(
-        label="VM Status",
-        description="Stage for later deployment",
-        default=VirtualMachineStatusChoices.STATUS_ACTIVE,
-        choices=(
-            (VirtualMachineStatusChoices.STATUS_STAGED, "Staged"),
-            (VirtualMachineStatusChoices.STATUS_ACTIVE, "Active")
         )
     )
 
@@ -367,7 +357,7 @@ class DeployVM(Script):
                     return False
 
             vm = VirtualMachine(
-                status=data['device_status'],
+                status=VirtualMachineStatusChoices.STATUS_STAGED,
                 cluster=data['cluster'],
                 platform=data['platform'],
                 role=data['role'],
