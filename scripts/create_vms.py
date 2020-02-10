@@ -6,7 +6,7 @@ from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
 from tenancy.models import Tenant
 from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
-from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar, BooleanVar
+from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar
 from extras.models import Tag
 import datetime
 
@@ -28,6 +28,7 @@ class DeployVM(Script):
     tags = []
     output = []
     success_log = ""
+    __snapshot_data = ""
 
     class Meta:
         name = "Deploy new VMs"
@@ -181,28 +182,6 @@ class DeployVM(Script):
         self.success_log = ""
         return self
 
-    # def __setSnapshotContextData(self):
-    #     """
-    #     The only data we need saved in _snapshots is data that cannot be saved in Netbox
-    #     """
-
-    #     self.__snapshot_data = {
-    #         "_snapshots": [
-    #             {
-    #                 "_comment": "Snapshot of context payload. This is data that does not reside in netbox, but needs to be static until deployment",
-    #                 "create_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
-    #                 "deploy_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
-    #                 "deployed_time": "",
-    #                 "payload": {
-    #                     "env": self.env_defaults[self.env] if self.env in self.env_defaults else {},
-    #                     "terraform_module_source": self.terraform_module_source,
-    #                     "terraform_module_version": self.terraform_module_version,
-    #                 },
-    #                 "type": "bootstrap"
-    #             }
-    #         ]
-    #     }
-
     def _generateHostname(self, cluster, env, descriptor):
 
         # I now proclaim this VM, First of its Name, Queen of the Andals and the First Men, Protector of the Seven Kingdoms
@@ -261,7 +240,30 @@ class DeployVM(Script):
         if self.interfaces is None:
             self.log_failure("No interfaces object in context data!")
             return False
+
+        self.__setSnapshotContextData()
+
         return True
+
+    def __setSnapshotContextData(self):
+        """
+        The only data we need saved in _snapshots is data that cannot be saved in Netbox
+        """
+
+        self.__snapshot_data = {
+            "_snapshots": [
+                {
+                    "_comment": "Snapshot of context payload. This is data that we need to excactly recreate the machine again in the future",
+                    "create_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+                    "deploy_time": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+                    "payload": {                        
+                        "terraform_module_source": self.terraform_module_source,
+                        "terraform_module_version": self.terraform_module_version,
+                    },
+                    "type": "bootstrap"
+                }
+            ]
+        }
 
     def run(self, data):
 
@@ -373,7 +375,8 @@ class DeployVM(Script):
                 name=hostname,
                 disk=data['disk'],
                 memory=data['memory'],
-                vcpus=data['vcpus']
+                vcpus=data['vcpus'],
+                local_context_data=self.__snapshot_data
             )
 
             vm.primary_ip4 = ip_address
