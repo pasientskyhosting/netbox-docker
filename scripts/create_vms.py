@@ -8,7 +8,6 @@ from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar
 from extras.models import Tag
-import datetime
 
 
 class DeployVM(Script):
