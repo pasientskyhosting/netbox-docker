@@ -14,8 +14,6 @@ class DeployVM(Script):
 
     env = ""
     interfaces = []
-    terraform_module_source = ""
-    terraform_module_version = ""
     time_zone = ""
     dns_domain_private = ""
     dns_domain_public = ""
@@ -72,7 +70,7 @@ class DeployVM(Script):
         default="coreos_2079.4.0",
         description="Base image to deploy",
         queryset=Platform.objects.filter(
-            name__in=['coreos_2079.4.0', 'vSphere vCenter Appliance']
+            name__in=['coreos_2079.4.0', 'flatcar_2303.4.0']
         )
     )
 
@@ -198,8 +196,6 @@ class DeployVM(Script):
 
         try:
             self.interfaces = base_context_data['interfaces']
-            self.terraform_module_source = base_context_data['terraform_module_source']
-            self.terraform_module_version = base_context_data['terraform_module_version']
             self.time_zone = base_context_data['time_zone']
             self.tags = base_context_data['tags']
             self.dns_domain_private = base_context_data['dns_domain_private']
