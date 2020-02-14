@@ -29,9 +29,19 @@ class DeployVM(Script):
     class Meta:
         name = "Deploy new VMs"
         description = "Deploy new virtual machines from existing platforms and roles using AWX"
-        fields = ['tenant', 'cluster', 'env','untagged_vlan', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
-        field_order = ['tenant', 'cluster', 'env', 'platform', 'role', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
+        fields = ['status', 'tenant', 'cluster', 'env', 'untagged_vlan', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
+        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
         commit_default = False
+
+    status = ChoiceVar(
+        label="VM Status",
+        description="Deploy VM now or later?",
+        required=True,
+        choices=(
+            (VirtualMachineStatusChoices.STATUS_OFFLINE, 'Offline (later)'),
+            (VirtualMachineStatusChoices.STATUS_STAGED, 'Staged (Now)')
+        )
+    )
 
     tenant = ObjectVar(
         default="patientsky-hosting",
@@ -67,11 +77,10 @@ class DeployVM(Script):
     )
 
     platform = ObjectVar(
-        default="coreos_2079.4.0",
-        description="Base image to deploy",
+        description="Host OS to deploy",
         queryset=Platform.objects.filter(
-            name__in=['coreos_2079.4.0', 'flatcar_2303.4.0']
-        )
+            name__regex=r'^(coreos_.*|flatcar_.*)'
+        ).order_by('name')
     )
 
     role = ObjectVar(
@@ -79,10 +88,10 @@ class DeployVM(Script):
         description="VM Role",
         queryset=DeviceRole.objects.filter(
             vm_role=True
-        )
+        ).order_by('name')
     )
 
-    ip_addresses = TextVar(        
+    ip_addresses = TextVar(
         required=False,
         label="IP Addresses",
         description="List of IP addresses to create w. prefix e.g 192.168.0.10/24. If none given, hosts will be assigned IPs automagically"
@@ -95,7 +104,7 @@ class DeployVM(Script):
         queryset=VLAN.objects.filter()
     )
 
-    hostnames = TextVar(        
+    hostnames = TextVar(
         required=True,
         label="Hostnames",
         description="List of hostnames to create."
@@ -236,7 +245,7 @@ class DeployVM(Script):
         self.env = data['env']
 
         # Setup base virtual machine for copying config_context
-        base_vm = VirtualMachine(            
+        base_vm = VirtualMachine(
             cluster=data['cluster'],
             platform=data['platform'],
             role=data['role'],
@@ -329,7 +338,7 @@ class DeployVM(Script):
                     return False
 
             vm = VirtualMachine(
-                status=VirtualMachineStatusChoices.STATUS_STAGED,
+                status=data['status'],
                 cluster=data['cluster'],
                 platform=data['platform'],
                 role=data['role'],
