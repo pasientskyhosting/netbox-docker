@@ -29,8 +29,8 @@ class DeployVM(Script):
     class Meta:
         name = "Deploy new VMs"
         description = "Deploy new virtual machines from existing platforms and roles using AWX"
-        fields = ['status', 'tenant', 'cluster', 'env', 'untagged_vlan', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
-        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
+        fields = ['status', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
+        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
         commit_default = False
 
     status = ChoiceVar(
@@ -38,8 +38,8 @@ class DeployVM(Script):
         description="Deploy VM now or later?",
         required=True,
         choices=(
-            (VirtualMachineStatusChoices.STATUS_OFFLINE, 'Offline (later)'),
-            (VirtualMachineStatusChoices.STATUS_STAGED, 'Staged (Now)')
+            (VirtualMachineStatusChoices.STATUS_STAGED, 'Staged (Deploy now)'),
+            (VirtualMachineStatusChoices.STATUS_PLANNED, 'Planned (Save for later)')
         )
     )
 
@@ -89,6 +89,17 @@ class DeployVM(Script):
         queryset=DeviceRole.objects.filter(
             vm_role=True
         ).order_by('name')
+    )
+
+    backup = ChoiceVar(
+        label="Backup strategy",
+        description="The backup strategy deployed to this VM with Veeam",
+        required=True,
+        choices=(
+            ('nobackup', 'Never'),
+            ('backup_general_1', 'Daily'),
+            ('backup_general_4', 'Monthly')
+        )
     )
 
     ip_addresses = TextVar(
@@ -214,6 +225,7 @@ class DeployVM(Script):
             self.ssh_authorized_keys = base_context_data['ssh_authorized_keys']
             self.ssh_port = base_context_data['ssh_port']
             self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
+            self.tags.update({data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
         except Exception as error:
             self.log_failure("Error when parsing context_data! Error: " + str(error))
             return False
