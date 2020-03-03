@@ -225,7 +225,7 @@ class DeployVM(Script):
             self.ssh_authorized_keys = base_context_data['ssh_authorized_keys']
             self.ssh_port = base_context_data['ssh_port']
             self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
-            self.tags.update({data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
+            self.tags.update({'vsphere_' + data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
         except Exception as error:
             self.log_failure("Error when parsing context_data! Error: " + str(error))
             return False
