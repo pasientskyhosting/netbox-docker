@@ -79,7 +79,7 @@ class DeployVM(Script):
     platform = ObjectVar(
         description="Host OS to deploy",
         queryset=Platform.objects.filter(
-            name__regex=r'^(coreos_.*|flatcar_.*)'
+            name__regex=r'^(base_.*)'
         ).order_by('name')
     )
 
