@@ -8,6 +8,7 @@ from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar
 from extras.models import Tag
+from utilities.forms import APISelect, StaticSelect2
 
 
 class DeployVM(Script):
@@ -29,9 +30,39 @@ class DeployVM(Script):
     class Meta:
         name = "Deploy new VMs"
         description = "Deploy new virtual machines from existing platforms and roles using AWX"
-        fields = ['status', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
-        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
+        fields = ['persist_disk', 'status', 'health_check', 'serial', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
+        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'health_check', 'serial', 'persist_disk', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
         commit_default = False
+
+    health_check = ChoiceVar(
+        label="Health checks on deployment",
+        description="Deployment will fail if server does not pass Consul health checks",
+        required=True,
+        choices=(
+            ('True', 'Yes'),
+            ('False', 'No')
+        )
+    )
+
+    serial = ChoiceVar(
+        label="Serial deployment",
+        description="VM will not be parallelized in deployment",
+        required=True,
+        choices=(
+            ('False', 'No'),
+            ('True', 'Yes'),
+        )
+    )
+
+    persist_disk = ChoiceVar(
+        label="Persist volume on redeploy",
+        description="VM will persist disk2 in vSphere on redeploys",
+        required=True,
+        choices=(
+            ('False', 'No'),
+            ('True', 'Yes'),
+        )
+    )
 
     status = ChoiceVar(
         label="VM Status",
@@ -52,7 +83,7 @@ class DeployVM(Script):
     cluster = ObjectVar(
         default="odn1",
         description="Name of the vSphere cluster you are deploying to",
-        queryset=Cluster.objects.filter()
+        queryset=Cluster.objects.all()
     )
 
     env = ChoiceVar(
@@ -105,14 +136,15 @@ class DeployVM(Script):
     ip_addresses = TextVar(
         required=False,
         label="IP Addresses",
-        description="List of IP addresses to create w. prefix e.g 192.168.0.10/24. If none given, hosts will be assigned IPs automagically"
+        description="List of IP addresses to create w. prefix e.g 192.168.0.10/24. If none given, hosts will be assigned IPs 'automagically'"
     )
 
     untagged_vlan = ObjectVar(
         required=False,
         label="VLAN",
-        description="Choose VLAN to auto-assign IPs or manually assign IPs below",
-        queryset=VLAN.objects.filter()
+        widget=APISelect(api_url='/api/ipam/vlans/', display_field='display_name'),
+        queryset=VLAN.objects.all(),
+        description="Choose VLAN for IP-addresses",
     )
 
     hostnames = TextVar(
@@ -226,6 +258,10 @@ class DeployVM(Script):
             self.ssh_port = base_context_data['ssh_port']
             self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
             self.tags.update({'vsphere_' + data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
+            if (data['health_check'] == 'True'):
+                self.tags.update({'health_check': {'comments': 'Do health checks in deployment', 'color': '4caf50'}})
+            if (data['serial'] == 'True'):
+                self.tags.update({'serial': {'comments': 'Do health checks in deployment', 'color': '4caf50'}})
         except Exception as error:
             self.log_failure("Error when parsing context_data! Error: " + str(error))
             return False
