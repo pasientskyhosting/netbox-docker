@@ -8,7 +8,7 @@ from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar
 from extras.models import Tag
-from utilities.forms import APISelect, StaticSelect2
+from utilities.forms import APISelect
 
 
 class DeployVM(Script):
