@@ -383,7 +383,7 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         url = self.api_endpoint + "/api/ipam/ip-addresses/?interface_id=" + str(interface["id"])
         # Fetch interface data
         return self._fetch_information(url)
-    
+
     def interface_lookup(self, host):
         # Check if virtual device
         if host["cluster"] is None:
@@ -392,7 +392,6 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             url = self.api_endpoint + "/api/virtualization/interfaces/?virtual_machine_id=" + str(host["id"])
         # Fetch interface data
         return self._fetch_information(url)
-
 
     def extract_interfaces_additional(self, interface):        
         try:
