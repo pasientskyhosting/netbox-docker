@@ -6,7 +6,7 @@ from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
 from tenancy.models import Tenant
 from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
-from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar
+from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar, MultiObjectVar
 from extras.models import Tag
 from utilities.forms import APISelect
 
@@ -28,45 +28,15 @@ class DeployVM(Script):
     success_log = ""
 
     class Meta:
-        name = "Deploy new VMs"
-        description = "Deploy new virtual machines from existing platforms and roles using AWX"
-        fields = ['persist_disk', 'status', 'health_check', 'serial', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
-        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'health_check', 'serial', 'persist_disk', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
+        name = "Deploy new VMs to an environment"
+        description = "Deploy new virtual machines from existing platforms and roles to an environment"
+        fields = ['status', 'options', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
+        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys', 'options']
         commit_default = False
-
-    health_check = ChoiceVar(
-        label="Health checks on deployment",
-        description="Deployment will fail if server does not pass Consul health checks",
-        required=True,
-        choices=(
-            ('True', 'Yes'),
-            ('False', 'No')
-        )
-    )
-
-    serial = ChoiceVar(
-        label="Serial deployment",
-        description="VM will not be parallelized in deployment",
-        required=True,
-        choices=(
-            ('False', 'No'),
-            ('True', 'Yes'),
-        )
-    )
-
-    persist_disk = ChoiceVar(
-        label="Persist volume on redeploy",
-        description="VM will persist disk2 in vSphere on redeploys",
-        required=True,
-        choices=(
-            ('False', 'No'),
-            ('True', 'Yes'),
-        )
-    )
 
     status = ChoiceVar(
         label="VM Status",
-        description="Deploy VM now or later?",
+        description="Deploy VMs now or later?",
         required=True,
         choices=(
             (VirtualMachineStatusChoices.STATUS_STAGED, 'Staged (Deploy now)'),
@@ -81,13 +51,19 @@ class DeployVM(Script):
     )
 
     cluster = ObjectVar(
+        label="vSphere cluster",
         default="odn1",
         description="Name of the vSphere cluster you are deploying to",
-        queryset=Cluster.objects.all()
+        widget=APISelect(
+            null_option=False,
+            api_url='/api/virtualization/clusters/',
+            display_field='display_name'
+        ),
+        queryset=Cluster.objects.all(),
     )
 
     env = ChoiceVar(
-        label="Environment",
+        label="Environment name",
         description="Environment to deploy VM",
         default="vlb",
         choices=(
@@ -103,20 +79,31 @@ class DeployVM(Script):
             ('qua', 'qua'),
             ('dmo', 'dmo'),
             ('vlb', 'vlb'),
+            ('pee', 'pee'),
+            ('pfi', 'pfi'),
             ('cmi', 'cmi')
         )
     )
 
     platform = ObjectVar(
-        description="Host OS to deploy",
+        description="Host Platform manifest to deploy",
+        widget=APISelect(
+            api_url='/api/dcim/platforms',
+            display_field='display_name',
+        ),
         queryset=Platform.objects.filter(
-            name__regex=r'^(base_.*)'
+            name__regex=r'^(.*__.*)'
         ).order_by('name')
     )
 
     role = ObjectVar(
-        label="VM Role",
-        description="VM Role",
+        description="Optional role to apply VM",
+        default=None,
+        required=False,
+        widget=APISelect(
+            api_url='/api/dcim/device-roles',
+            display_field='display_name',
+        ),
         queryset=DeviceRole.objects.filter(
             vm_role=True
         ).order_by('name')
@@ -211,6 +198,16 @@ class DeployVM(Script):
         default="20"
     )
 
+    options = MultiObjectVar(
+        label="Deployment options",
+        description="Extra options e.g serial deployment, health checks etc",
+        required=False,
+        default=None,
+        queryset=Tag.objects.filter(
+            name__regex=r'^(health_.*|vsphere_persist.*|serial)',
+        ).order_by('name')
+    )
+
     def appendLogSuccess(self, log: str, obj=None):
         self.success_log += " {} `\n{}\n`".format(log, obj)
         return self
@@ -258,10 +255,9 @@ class DeployVM(Script):
             self.ssh_port = base_context_data['ssh_port']
             self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
             self.tags.update({'vsphere_' + data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
-            if (data['health_check'] == 'True'):
-                self.tags.update({'health_check': {'comments': 'Do health checks in deployment', 'color': '4caf50'}})
-            if (data['serial'] == 'True'):
-                self.tags.update({'serial': {'comments': 'Do health checks in deployment', 'color': '4caf50'}})
+            if (len(data['options']) > 0):
+                self.log_failure(data['options'])
+                # self.tags.update({'serial': {'comments': 'Do health checks in deployment', 'color': '4caf50'}})
         except Exception as error:
             self.log_failure("Error when parsing context_data! Error: " + str(error))
             return False
