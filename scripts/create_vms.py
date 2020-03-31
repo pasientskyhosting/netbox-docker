@@ -204,7 +204,7 @@ class DeployVM(Script):
         required=False,
         default=None,
         queryset=Tag.objects.filter(
-            name__regex=r'^(health_.*|vsphere_persist.*|serial)',
+            name__regex=r'^(health_.*|persist_disk2.*|serial)',
         ).order_by('name')
     )
 
