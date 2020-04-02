@@ -6,7 +6,7 @@ from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
 from tenancy.models import Tenant
 from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
-from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar, MultiObjectVar
+from extras.scripts import Script, ObjectVar, ChoiceVar, TextVar, IntegerVar
 from extras.models import Tag
 from utilities.forms import APISelect
 
@@ -14,6 +14,8 @@ from utilities.forms import APISelect
 class DeployVM(Script):
 
     env = ""
+    data = {}
+    odd_even_selector: bool = True
     interfaces = []
     time_zone = ""
     dns_domain_private = ""
@@ -21,17 +23,16 @@ class DeployVM(Script):
     dns_servers = []
     ntp_servers = []
     ssh_authorized_keys = []
-    ssh_port = ""
     _default_interface = {}
-    tags = []
+    tags = {}
     output = []
     success_log = ""
 
     class Meta:
         name = "Deploy new VMs to an environment"
         description = "Deploy new virtual machines from existing platforms and roles to an environment"
-        fields = ['status', 'options', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames']
-        field_order = ['status', 'tenant', 'cluster', 'env', 'platform', 'role', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys', 'options']
+        fields = ['status', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames', 'datazone']
+        field_order = ['status', 'tenant', 'cluster', 'datazone', 'env', 'platform', 'role', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
         commit_default = False
 
     status = ChoiceVar(
@@ -60,6 +61,17 @@ class DeployVM(Script):
             display_field='display_name'
         ),
         queryset=Cluster.objects.all(),
+    )
+
+    datazone = ChoiceVar(
+        label="Datazone",
+        description="Datazone to deploy VMs (autoselects as default)",
+        default="auto",
+        choices=(
+            ('auto', 'automatic selection'),
+            ('1', '1'),
+            ('2', '2')
+        )
     )
 
     env = ChoiceVar(
@@ -91,9 +103,7 @@ class DeployVM(Script):
             api_url='/api/dcim/platforms',
             display_field='display_name',
         ),
-        queryset=Platform.objects.filter(
-            name__regex=r'^(.*__.*)'
-        ).order_by('name')
+        queryset=Platform.objects.all().order_by('name')
     )
 
     role = ObjectVar(
@@ -198,16 +208,6 @@ class DeployVM(Script):
         default="20"
     )
 
-    options = MultiObjectVar(
-        label="Deployment options",
-        description="Extra options e.g serial deployment, health checks etc",
-        required=False,
-        default=None,
-        queryset=Tag.objects.filter(
-            name__regex=r'^(health_.*|persist_disk2.*|serial)',
-        ).order_by('name')
-    )
-
     def appendLogSuccess(self, log: str, obj=None):
         self.success_log += " {} `\n{}\n`".format(log, obj)
         return self
@@ -241,23 +241,22 @@ class DeployVM(Script):
 
         return hostname
 
-    def __validateInput(self, data, base_context_data):
+    def __validateInput(self, base_context_data):
 
         try:
             self.interfaces = base_context_data['interfaces']
             self.time_zone = base_context_data['time_zone']
-            self.tags = base_context_data['tags']
             self.dns_domain_private = base_context_data['dns_domain_private']
             self.dns_domain_public = base_context_data['dns_domain_public']
             self.dns_servers = base_context_data['dns_servers']
             self.ntp_servers = base_context_data['ntp_servers']
             self.ssh_authorized_keys = base_context_data['ssh_authorized_keys']
-            self.ssh_port = base_context_data['ssh_port']
             self.tags.update({'env_' + self.env: {'comments': 'Environment', 'color': '009688'}})
-            self.tags.update({'vsphere_' + data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
-            if (len(data['options']) > 0):
-                self.log_failure(data['options'])
-                # self.tags.update({'serial': {'comments': 'Do health checks in deployment', 'color': '4caf50'}})
+            self.tags.update({'vsphere_' + self.data['backup']: {'comments': 'Backup strategy', 'color': '009688'}})
+            self.tags.update({'ansible': {'comments': 'Ansible managed hosts', 'color': 'aa1409'}})
+            self.tags.update({'zero_day': {'comments': 'Zero Day managed hosts', 'color': '111111'}})
+            if self.data['datazone'] != "auto":
+                self.tags.update({'datazone_' + self.data['datazone']: {'comments': 'Datazone', 'color': 'ffc107'}})
         except Exception as error:
             self.log_failure("Error when parsing context_data! Error: " + str(error))
             return False
@@ -266,11 +265,11 @@ class DeployVM(Script):
             self.log_failure("No interfaces object in context data!")
             return False
 
-        if data['ip_addresses'] != "" and len(data['ip_addresses'].splitlines()) != int(data['vm_count']):
+        if self.data['ip_addresses'] != "" and len(self.data['ip_addresses'].splitlines()) != int(self.data['vm_count']):
             self.log_failure("The number of IP addresses and VMs does not match!")
             return False
 
-        if data['hostnames'] != "" and len(data['hostnames'].splitlines()) != int(data['vm_count']):
+        if self.data['hostnames'] != "" and len(self.data['hostnames'].splitlines()) != int(self.data['vm_count']):
             self.log_failure("The number of hostnames and VMs does not match!")
             return False
 
@@ -281,6 +280,8 @@ class DeployVM(Script):
         return True
 
     def run(self, data):
+
+        self.data = data
 
         vrf = VRF.objects.get(
             name="global"
@@ -299,7 +300,7 @@ class DeployVM(Script):
 
         base_vm.save()
 
-        if self.__validateInput(data=data, base_context_data=base_vm.get_config_context()) is False:
+        if self.__validateInput(base_context_data=base_vm.get_config_context()) is False:
             return False
 
         # Delete base virtual machine for copying config_context
@@ -417,9 +418,11 @@ class DeployVM(Script):
                 comments = self.tags[tag]['comments'] if 'comments' in self.tags[tag] else 'No comments'
                 newTag = Tag(comments=comments, name=tag, color=color)
                 newTag.save()
-
             vm.tags.add(tag)
-
+        # Flip between 1 and 2 in datazone
+        if self.data['datazone'] == "auto":
+            vm.tags.add('datazone_1' if self.odd_even_selector is True else 'datazone_2')
+            self.odd_even_selector = not self.odd_even_selector
         vm.save()
 
     def __setupInterface(self, ip_address: IPAddress, vm: VirtualMachine, data):
