@@ -32,7 +32,7 @@ class DeployVM(Script):
         name = "Deploy new VMs to an environment"
         description = "Deploy new virtual machines from existing platforms and roles to an environment"
         fields = ['status', 'tenant', 'cluster', 'env', 'untagged_vlan', 'backup', 'ip_addresses', 'vm_count', 'vcpus', 'memory', 'platform', 'role', 'disk', 'ssh_authorized_keys', 'hostnames', 'datazone']
-        field_order = ['status', 'tenant', 'cluster', 'datazone', 'env', 'platform', 'role', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'hostnames', 'untagged_vlan', 'ip_addresses', 'ssh_authorized_keys']
+        field_order = ['status', 'tenant', 'cluster', 'datazone', 'env', 'platform', 'role', 'untagged_vlan', 'backup', 'vm_count', 'vcpus', 'memory', 'disk', 'ip_addresses', 'hostnames', 'ssh_authorized_keys']
         commit_default = False
 
     status = ChoiceVar(
@@ -74,27 +74,13 @@ class DeployVM(Script):
         )
     )
 
-    env = ChoiceVar(
-        label="Environment name",
+    env = ObjectVar(
+        label="Environment tag",
         description="Environment to deploy VM",
-        default="vlb",
-        choices=(
-            ('pno', 'pno'),
-            ('inf', 'inf'),
-            ('stg', 'stg'),
-            ('dev', 'dev'),
-            ('hem', 'hem'),
-            ('hov', 'hov'),
-            ('hpl', 'hpl'),
-            ('mgt', 'mgt'),
-            ('cse', 'cse'),
-            ('qua', 'qua'),
-            ('dmo', 'dmo'),
-            ('vlb', 'vlb'),
-            ('pee', 'pee'),
-            ('pfi', 'pfi'),
-            ('cmi', 'cmi')
-        )
+        default="env_inf",
+        queryset=Tag.objects.filter(
+            name__startswith='env_',
+        ).order_by('name'),
     )
 
     platform = ObjectVar(
@@ -119,6 +105,14 @@ class DeployVM(Script):
         ).order_by('name')
     )
 
+    untagged_vlan = ObjectVar(
+        required=True,
+        label="VLAN",
+        widget=APISelect(api_url='/api/ipam/vlans/', display_field='display_name'),
+        queryset=VLAN.objects.all(),
+        description="Choose VLAN for IP-addresses",
+    )
+
     backup = ChoiceVar(
         label="Backup strategy",
         description="The backup strategy deployed to this VM with Veeam",
@@ -133,21 +127,13 @@ class DeployVM(Script):
     ip_addresses = TextVar(
         required=False,
         label="IP Addresses",
-        description="List of IP addresses to create w. prefix e.g 192.168.0.10/24. If none given, hosts will be assigned IPs 'automagically'"
-    )
-
-    untagged_vlan = ObjectVar(
-        required=False,
-        label="VLAN",
-        widget=APISelect(api_url='/api/ipam/vlans/', display_field='display_name'),
-        queryset=VLAN.objects.all(),
-        description="Choose VLAN for IP-addresses",
+        description="List of IP addresses to create w. prefix e.g 192.168.0.10/24"
     )
 
     hostnames = TextVar(
-        required=True,
+        required=False,
         label="Hostnames",
-        description="List of hostnames to create."
+        description="List of hostnames to create. Will auto generate if empty and role is set"
     )
 
     ssh_authorized_keys = TextVar(
@@ -217,12 +203,12 @@ class DeployVM(Script):
         self.success_log = ""
         return self
 
-    def _generateHostname(self, cluster, env, descriptor):
+    def _generateHostname(self, cluster, env, role_name):
 
         # I now proclaim this VM, First of its Name, Queen of the Andals and the First Men, Protector of the Seven Kingdoms
         vm_index = "001"
 
-        search_for = str(cluster) + '-' + env + '-' + descriptor + '-'
+        search_for = str(cluster) + '-' + env + '-' + role_name + '-'
         vms = VirtualMachine.objects.filter(
             name__startswith=search_for
         )
@@ -237,7 +223,7 @@ class DeployVM(Script):
             else:
                 vm_index = str(last_vm_index)
 
-        hostname = str(cluster) + '-' + env + '-' + descriptor + '-' + vm_index
+        hostname = str(cluster) + '-' + env + '-' + role_name + '-' + vm_index
 
         return hostname
 
@@ -279,6 +265,9 @@ class DeployVM(Script):
 
         return True
 
+    def set_env(self, data):
+        self.env = str(data['env'].name).split('_')[1]
+
     def run(self, data):
 
         self.data = data
@@ -287,7 +276,7 @@ class DeployVM(Script):
             name="global"
         )
 
-        self.env = data['env']
+        self.set_env(data)
 
         # Setup base virtual machine for copying config_context
         base_vm = VirtualMachine(
@@ -313,14 +302,16 @@ class DeployVM(Script):
 
             hostnames = data['hostnames'].splitlines()
             ip_addresses = data['ip_addresses'].splitlines()
-
             if len(hostnames) > 0:
                 hostname = hostnames[i]
             else:
+                if data['role'] is None:
+                    self.log_failure("When empty role - hostnames must be given")
+                    return False
                 hostname = self._generateHostname(
                     cluster=data['cluster'].name,
                     env=self.env,
-                    descriptor="na"
+                    role_name=str(data['role']).split(':')[0]
                 )
 
             # Check if VM exists
@@ -352,18 +343,14 @@ class DeployVM(Script):
                 self.appendLogSuccess(log="Created IP", obj=ip_addresses[i]).appendLogSuccess(log="DNS", obj=hostname + '.' + domain)
             else:
                 if data['untagged_vlan'] is not None:
-
                     try:
-
                         # Auto assign IPs from vsphere_port_group
                         prefix = Prefix.objects.get(
                             vlan=data['untagged_vlan'],
                             site=Site.objects.get(name=data['cluster'].site.name),
                             is_pool=True
                         )
-
                         ip = prefix.get_first_available_ip()
-
                         domain = self.dns_domain_private if netaddr.IPNetwork(ip).is_private() is True else self.dns_domain_public
                         ip_address = IPAddress(
                             address=ip,
