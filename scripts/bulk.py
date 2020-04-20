@@ -20,6 +20,8 @@ class VM:
     ip_address: IPAddress
 
     DEFAULT_TAGS = ['ansible', 'zero_day']
+    DEFAULT_DOMAIN_PRIVATE = 'privatedns.zone'
+    DEFAULT_DOMAIN_PUBLIC = 'publicdns.zone'
 
     def __init__(self, site, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address: str = None, hostname: str = None):
         self.set_site(site)
@@ -62,7 +64,7 @@ class VM:
         )
 
     def get_fqdn(self):
-        return self.hostname + '.privatedns.zone'
+        return "{}.{}".format(self.hostname, self.DEFAULT_DOMAIN_PRIVATE if netaddr.IPNetwork(self.ip_address.address).is_private() is True else self.DEFAULT_DOMAIN_PUBLIC)
 
     def set_ip_address(self, ip_address):
         try:
@@ -74,8 +76,8 @@ class VM:
                 vrf=self.get_vrf(),
                 tenant=self.tenant,
                 family=4,
-                dns_name=self.get_fqdn()
             )
+            self.ip_address.dns_name = self.get_fqdn()
         except Exception as e:
             self.ip_address = None
             raise Exception("IP address - {0}".format(e))
@@ -211,7 +213,8 @@ class VM:
 
             prefix = Prefix.objects.get(
                 prefix=prefix_search,
-                is_pool=True
+                is_pool=True,
+                site=self.site,
             )
 
             interfaces = vm.get_config_context().get('interfaces')
@@ -250,11 +253,18 @@ class VM:
 
 class BulkDeployVM(Script):
     """
-    Example CSV:
+    Example CSV :
     site,status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address
     odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,odn1-vlb-redirtp-001,10.50.61.10/24
     odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24
     odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24
+
+    Example CSV (auto hostname):
+    site,status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,ip_address
+    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,10.50.61.10/24
+    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,10.50.61.11/24
+    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.12/24
+    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.13/24
     """
 
     DEFAULT_CSV_FIELDS = "site,status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address"
@@ -309,8 +319,8 @@ class BulkDeployVM(Script):
                     ip_address=raw_vm.get('ip_address'),
                 )
                 vm.create()
-                self.log_success(" {0} \n`{1}`".format(vm.hostname, vars(vm)))
+                self.log_success("Created `{}`, IP `{}` to cluster `{}`".format(vm.get_fqdn(), vm.ip_address, vm.cluster))
                 i = i + 1
             except Exception as e:
                 self.log_failure("CSV line {}, Error while creating VM \n`{}`".format(i, e))
-        return True
+        return data['vms']
