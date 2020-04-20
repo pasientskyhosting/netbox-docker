@@ -381,7 +381,7 @@ class DeployVM(Script):
                 vcpus=data['vcpus']
             )
 
-            vm.primary_ip4 = ip_address
+            vm.primary_ip4 = ip_address.save()
             vm.save()
             self.appendLogSuccess(log="for VM in ", obj=vm.cluster)
 
