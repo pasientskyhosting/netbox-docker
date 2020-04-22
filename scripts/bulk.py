@@ -24,7 +24,7 @@ class VM:
     DEFAULT_DOMAIN_PRIVATE = 'privatedns.zone'
     DEFAULT_DOMAIN_PUBLIC = 'publicdns.zone'
 
-    def __init__(self, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address, hostname, vlan):
+    def __init__(self, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address, hostname, vlan, extra_tags):
         # IP address can first be created after vm
         self.csv_ip_address = ip_address
         self.set_cluster(cluster)
@@ -40,6 +40,13 @@ class VM:
         self.set_disk(disk)
         self.set_hostname(hostname)
         self.set_vlan(vlan)
+        self.set_extra_tags(extra_tags)
+
+    def set_extra_tags(self, extra_tags):
+        try:
+            self.extra_tags = extra_tags.split(',')
+        except Exception as e:
+            raise Exception("Extra tags - {0}".format(e))
 
     def set_vlan(self, vlan):
         try:
@@ -185,7 +192,7 @@ class VM:
 
     def set_tenant(self, tenant):
         try:
-            if tenant.name:
+            if isinstance(tenant, Tenant):
                 self.tenant = tenant
             else:
                 self.tenant = Tenant.objects.get(
@@ -213,6 +220,8 @@ class VM:
         vm.tags.add(self.env)
         vm.tags.add(self.backup)
         for tag in self.DEFAULT_TAGS:
+            vm.tags.add(tag)
+        for tag in self.extra_tags:
             vm.tags.add(tag)
         vm.save()
         self.set_tags(vm.tags)
@@ -293,36 +302,35 @@ class VM:
 
 class BulkDeployVM(Script):
     """
-    Example CSV :
-    status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,odn1-vlb-redirtp-001,10.50.61.10/24
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24
+    Example CSV full:
+    status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address,extra_tags
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,odn1-vlb-redirtp-001,10.50.61.10/24,"voip,test_tag,cluster_id_voip_galera_001"
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24,"voip,test_tag,cluster_id_voip_galera_002"
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24,"voip,test_tag,cluster_id_voip_galera_003"
 
-    Example CSV (auto hostname):
-    status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,ip_address
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,10.50.61.10/24
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,10.50.61.11/24
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.12/24
-    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.13/24
+    ** Default Params **
+    Param: status       - VM status, (default 'staged')
+    Param: tenant       - (default 'patientsky-hosting')
+    Param: datazone     - Adds 'datazone_x' tag, (default 'rr')
+    Param: role         - VM devide role, (default 'None')
 
-    Example CSV (auto status,tenant,datazone,hostname,ip_address):
-    cluster,env,platform,role,backup,vcpus,memory,disk,vlan
-    odn1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,vlan-601
-    odn1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,vlan-601
-    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,vlan-601
-    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,vlan-601
+    ** Required Params **
+    Param: cluster
+    Param: env          - Adds 'env_xxx' tag
+    Param: platform
+    Param: backup       - Adds 'vsphere_tag_xxxx' tag
+    Param: vcpus
+    Param: memory
+    Param: disk
 
-    Example CSV (auto status,tenant,datazone,hostname):
-    cluster,env,platform,role,backup,vcpus,memory,disk,ip_address
-    odn1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,10.50.61.10/24
-    odn1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,10.50.61.11/24
-    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.12/24
-    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.13/24
+    ** Optional Params **
+    Param: hostname     * optional if 'role' is set
+    Param: vlan
+    Param: ip_address   * optional if 'vlan' is set
+    Param: extra_tags   - Adds extra tags to VM
     """
 
-    DEFAULT_CSV_FIELDS = "cluster,env,platform,role,backup,vcpus,memory,disk,ip_address"
-    RESERVED_NETWORK_PREFIX_24_IPS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    DEFAULT_CSV_FIELDS = "cluster,env,platform,backup,vcpus,memory,disk,hostname,ip_address,extra_tags"
     datazone_rr: bool = True
 
     class Meta:
@@ -351,7 +359,7 @@ class BulkDeployVM(Script):
 
     default_tenant = ObjectVar(
         label="Default Tenant",
-        default="patientsky-hosting",
+        default="PatientSky Hosting",
         required=False,
         description="Default CSV field `tenant` if none given",
         queryset=Tenant.objects.all()
@@ -408,10 +416,11 @@ class BulkDeployVM(Script):
                     hostname=raw_vm.get('hostname'),
                     ip_address=raw_vm.get('ip_address'),
                     vlan=raw_vm.get('vlan'),
+                    extra_tags=raw_vm.get('extra_tags'),
                 )
                 vm.create()
                 self.log_success(
-                    "{} `{}` for `{}`, `{}`, in cluster `{}`, env `{}`, datazone `{}`".
+                    "{} `{}` for `{}`, `{}`, in cluster `{}`, env `{}`, datazone `{}`, extra \n```\n{}\n```\n".
                     format(
                         vm.status.capitalize(),
                         vm.hostname,
@@ -420,6 +429,7 @@ class BulkDeployVM(Script):
                         vm.cluster,
                         raw_vm.get('env'),
                         vm.datazone,
+                        vm.extra_tags
                     )
                 )
                 line += 1
