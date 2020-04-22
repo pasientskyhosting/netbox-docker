@@ -2,11 +2,11 @@ import netaddr
 import csv
 from dcim.choices import InterfaceTypeChoices, InterfaceModeChoices
 from dcim.models import Platform, DeviceRole, Site
-from ipam.models import IPAddress, VRF, Interface, Prefix
+from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
 from tenancy.models import Tenant
 from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
-from extras.scripts import Script, TextVar
+from extras.scripts import Script, TextVar, ChoiceVar, ObjectVar
 from extras.models import Tag
 
 
@@ -17,17 +17,19 @@ class VM:
     tenant: Tenant
     cluster: Cluster
     site: Site
+    csv_ip_address: str
     ip_address: IPAddress
 
     DEFAULT_TAGS = ['ansible', 'zero_day']
     DEFAULT_DOMAIN_PRIVATE = 'privatedns.zone'
     DEFAULT_DOMAIN_PUBLIC = 'publicdns.zone'
 
-    def __init__(self, site, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address: str = None, hostname: str = None):
-        self.set_site(site)
+    def __init__(self, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address, hostname, vlan):
+        # IP address can first be created after vm
+        self.csv_ip_address = ip_address
+        self.set_cluster(cluster)
         self.set_status(status)
         self.set_tenant(tenant)
-        self.set_cluster(cluster)
         self.set_datazone(datazone)
         self.set_env(env)
         self.set_platform(platform)
@@ -37,7 +39,16 @@ class VM:
         self.set_memory(memory)
         self.set_disk(disk)
         self.set_hostname(hostname)
-        self.set_ip_address(ip_address)
+        self.set_vlan(vlan)
+
+    def set_vlan(self, vlan):
+        try:
+            self.vlan = VLAN.objects.get(
+                name=vlan,
+                site=self.site
+            )
+        except Exception:
+            self.vlan = None
 
     def generate_hostname(self):
         # I now proclaim this VM, First of its Name, Queen of the Andals and the First Men, Protector of the Seven Kingdoms
@@ -66,21 +77,40 @@ class VM:
     def get_fqdn(self):
         return "{}.{}".format(self.hostname, self.DEFAULT_DOMAIN_PRIVATE if netaddr.IPNetwork(self.ip_address.address).is_private() is True else self.DEFAULT_DOMAIN_PUBLIC)
 
-    def set_ip_address(self, ip_address):
+    def set_ip_address(self, vm):
         try:
-            ip_check = IPAddress.objects.filter(address=ip_address)
-            if len(ip_check) > 0:
-                raise Exception(str(ip_check[0].address) + ' is already assigned to ' + str(ip_check[0].interface.name))
-            self.ip_address = IPAddress(
-                address=ip_address,
-                vrf=self.get_vrf(),
-                tenant=self.tenant,
-                family=4,
-            )
+            if self.csv_ip_address is not None:
+                ip_check = IPAddress.objects.filter(address=self.csv_ip_address)
+                if len(ip_check) > 0:
+                    raise Exception(str(ip_check[0].address) + ' is already assigned to ' + str(ip_check[0].interface.name))
+                self.ip_address = IPAddress(
+                    address=self.csv_ip_address,
+                    vrf=self.get_vrf(),
+                    tenant=self.tenant,
+                    family=4,
+                )
+            else:
+                # Auto assign IPs from vlan
+                prefix = Prefix.objects.get(
+                    vlan=self.vlan,
+                    site=vm.site,
+                    is_pool=True
+                )
+                ip_address = prefix.get_first_available_ip()
+                self.ip_address = IPAddress(
+                    address=ip_address,
+                    vrf=self.get_vrf(),
+                    tenant=self.tenant,
+                    family=4,
+                )
             self.ip_address.dns_name = self.get_fqdn()
+            self.ip_address.save()
         except Exception as e:
             self.ip_address = None
             raise Exception("IP address - {0}".format(e))
+
+    def get_vlan(self):
+        return False
 
     def set_hostname(self, hostname):
         try:
@@ -114,9 +144,7 @@ class VM:
 
     def set_site(self, site):
         try:
-            self.site = Site.objects.filter(
-                name=site
-            )[0]
+            self.site = site
         except Exception as e:
             raise Exception('Site does not exist - ' + str(e))
 
@@ -130,37 +158,39 @@ class VM:
 
     def set_platform(self, platform):
         try:
-            self.platform = Platform.objects.filter(
-                name=platform
-            )[0]
+            self.platform = Platform.objects.get(name=platform)
         except Exception as e:
             raise Exception("Platform does not exist {0}".format(e))
 
     def set_env(self, env):
         try:
-            self.env = Tag.objects.filter(name="env_{0}".format(env))[0]
+            self.env = Tag.objects.get(name="env_{0}".format(env))
         except Exception as e:
-            raise Exception("Tag env does not exist - {0}".format(e))
+            raise Exception("Tag env does not exist - {0}".format(e, env))
 
     def set_datazone(self, datazone):
         try:
-            self.datazone = Tag.objects.filter(name="datazone_{0}".format(datazone))[0]
+            self.datazone = Tag.objects.get(name="datazone_{0}".format(datazone))
         except Exception as e:
             raise Exception("Tag datazone does not exist - {0}".format(e))
 
     def set_cluster(self, cluster):
         try:
-            self.cluster = Cluster.objects.filter(
+            self.cluster = Cluster.objects.get(
                 name=cluster
-            )[0]
+            )
+            self.set_site(self.cluster.site)
         except Exception as e:
             raise Exception("Cluster does not exist {0}".format(e))
 
     def set_tenant(self, tenant):
         try:
-            self.tenant = Tenant.objects.filter(
-                slug=tenant
-            )[0]
+            if tenant.name:
+                self.tenant = tenant
+            else:
+                self.tenant = Tenant.objects.get(
+                    slug=tenant
+                )
         except Exception as e:
             raise Exception("Tenant does not exist {0}".format(e))
 
@@ -170,12 +200,13 @@ class VM:
         except Exception as e:
             raise Exception("Status does not exist {0}".format(e))
 
-    # Assign IP to interface
-    def create_interface(ip_address, data, vm):
-        return True
+    def get_ip_address(self):
+        return self.ip_address
 
-    def __create_ip_address(self):
-        self.ip_address.save()
+    def __create_ip_address(self, vm):
+        self.set_ip_address(vm)
+        vm.primary_ip4 = self.get_ip_address()
+        vm.save()
 
     def __create_tags(self, vm: VirtualMachine):
         vm.tags.add(self.datazone)
@@ -184,6 +215,16 @@ class VM:
         for tag in self.DEFAULT_TAGS:
             vm.tags.add(tag)
         vm.save()
+        self.set_tags(vm.tags)
+
+    def set_tags(self, tags):
+        self.tags = tags
+
+    def get_tags(self):
+        list = []
+        for tag in self.tags.all():
+            list.append(tag.name)
+        return list
 
     def __create_vm(self):
         vm = VirtualMachine(
@@ -196,7 +237,6 @@ class VM:
             disk=self.disk,
             memory=self.memory,
             vcpus=self.vcpus,
-            primary_ip4=self.ip_address,
         )
         vm.save()
         return vm
@@ -208,7 +248,7 @@ class VM:
         try:
 
             # Get net address tools
-            ip = netaddr.IPNetwork(self.ip_address.address)
+            ip = netaddr.IPNetwork(vm.primary_ip4.address)
             prefix_search = str(ip.network) + '/' + str(ip.prefixlen)
 
             prefix = Prefix.objects.get(
@@ -237,13 +277,13 @@ class VM:
             self.ip_address.save()
 
         except Exception as e:
-            raise Exception("Error while creating interface {}".format(e))
+            raise Exception("Error while creating interface - {}".format(e))
         return True
 
     def create(self):
         try:
-            self.__create_ip_address()
             vm = self.__create_vm()
+            self.__create_ip_address(vm)
             self.__create_tags(vm)
             self.__create_interface(vm)
         except Exception as e:
@@ -254,33 +294,79 @@ class VM:
 class BulkDeployVM(Script):
     """
     Example CSV :
-    site,status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,odn1-vlb-redirtp-001,10.50.61.10/24
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24
+    status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,odn1-vlb-redirtp-001,10.50.61.10/24
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24
 
     Example CSV (auto hostname):
-    site,status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,ip_address
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,10.50.61.10/24
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,10.50.61.11/24
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.12/24
-    odn1,staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.13/24
+    status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,ip_address
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,10.50.61.10/24
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,10.50.61.11/24
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.12/24
+    staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.13/24
+
+    Example CSV (auto status,tenant,datazone,hostname,ip_address):
+    cluster,env,platform,role,backup,vcpus,memory,disk,vlan
+    odn1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,vlan-601
+    odn1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,vlan-601
+    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,vlan-601
+    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,vlan-601
+
+    Example CSV (auto status,tenant,datazone,hostname):
+    cluster,env,platform,role,backup,vcpus,memory,disk,ip_address
+    odn1,vlb,base:v1.0.0-coreos,redirtp:v0.2.0,nobackup,1,1024,10,10.50.61.10/24
+    odn1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,10.50.61.11/24
+    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.12/24
+    odn1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,10.50.61.13/24
     """
 
-    DEFAULT_CSV_FIELDS = "site,status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address"
+    DEFAULT_CSV_FIELDS = "cluster,env,platform,role,backup,vcpus,memory,disk,ip_address"
+    RESERVED_NETWORK_PREFIX_24_IPS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    datazone_rr: bool = True
 
     class Meta:
         name = "Bulk deploy new VMs"
         description = "Deploy new virtual machines from existing platforms"
-        fields = ['vms']
-        field_order = ['vms']
+        fields = ['vms', 'default_status', 'default_tenant', 'default_datazone']
+        field_order = ['vms', 'default_status', 'default_tenant', 'default_datazone']
         commit_default = False
 
     vms = TextVar(
-        label="Import",
-        description="CSV import form.",
+        label="Import CSV",
+        description="CSV data",
         required=True,
         default=DEFAULT_CSV_FIELDS
+    )
+
+    default_status = ChoiceVar(
+        label="Default Status",
+        description="Default CSV field `status` if none given",
+        required=False,
+        choices=(
+            (VirtualMachineStatusChoices.STATUS_STAGED, 'Staged (Deploy now)'),
+            (VirtualMachineStatusChoices.STATUS_PLANNED, 'Planned (Save for later)')
+        )
+    )
+
+    default_tenant = ObjectVar(
+        label="Default Tenant",
+        default="patientsky-hosting",
+        required=False,
+        description="Default CSV field `tenant` if none given",
+        queryset=Tenant.objects.all()
+    )
+
+    default_datazone = ChoiceVar(
+        label="Default Datazone",
+        description="Default CSV field `datazone` if none given",
+        default="rr",
+        required=False,
+        choices=(
+            ('rr', 'Round robin (1,2)'),
+            ('1', '1'),
+            ('2', '2')
+        )
     )
 
     def get_vm_data(self):
@@ -295,19 +381,23 @@ class BulkDeployVM(Script):
     def set(self, data):
         self.set_csv_data(data['vms'].splitlines())
 
+    def get_datazone(self, datazone):
+        if datazone == 'rr':
+            datazone = 1 if self.datazone_rr else 2
+            self.datazone_rr = not self.datazone_rr
+        return datazone
+
     def run(self, data):
-
+        # Set data from raw csv
         self.set(data)
-
-        i = 1
+        line = 1
         for raw_vm in self.get_csv_raw_data():
             try:
                 vm = VM(
-                    site=raw_vm.get('site'),
-                    status=raw_vm.get('status'),
-                    tenant=raw_vm.get('tenant'),
+                    status=raw_vm.get('status') if raw_vm.get('status') is not None else data['default_status'],
+                    tenant=raw_vm.get('tenant') if raw_vm.get('tenant') is not None else data['default_tenant'],
+                    datazone=raw_vm.get('datazone') if raw_vm.get('datazone') is not None else self.get_datazone(data['default_datazone']),
                     cluster=raw_vm.get('cluster'),
-                    datazone=raw_vm.get('datazone'),
                     env=raw_vm.get('env'),
                     platform=raw_vm.get('platform'),
                     role=raw_vm.get('role'),
@@ -317,10 +407,22 @@ class BulkDeployVM(Script):
                     disk=raw_vm.get('disk'),
                     hostname=raw_vm.get('hostname'),
                     ip_address=raw_vm.get('ip_address'),
+                    vlan=raw_vm.get('vlan'),
                 )
                 vm.create()
-                self.log_success("Created `{}`, IP `{}` to cluster `{}`".format(vm.get_fqdn(), vm.ip_address, vm.cluster))
-                i = i + 1
+                self.log_success(
+                    "{} `{}` for `{}`, `{}`, in cluster `{}`, env `{}`, datazone `{}`".
+                    format(
+                        vm.status.capitalize(),
+                        vm.hostname,
+                        vm.tenant,
+                        vm.ip_address.address,
+                        vm.cluster,
+                        raw_vm.get('env'),
+                        vm.datazone,
+                    )
+                )
+                line += 1
             except Exception as e:
-                self.log_failure("CSV line {}, Error while creating VM \n`{}`".format(i, e))
+                self.log_failure("CSV line {}, Error while creating VM \n`{}`".format(line, e))
         return data['vms']
