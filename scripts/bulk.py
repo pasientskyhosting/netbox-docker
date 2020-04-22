@@ -308,29 +308,27 @@ class BulkDeployVM(Script):
     staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24,"voip,test_tag,cluster_id_voip_galera_002"
     staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24,"voip,test_tag,cluster_id_voip_galera_003"
 
-    ** Default Params **
-    Param: status       - VM status, (default 'staged')
-    Param: tenant       - (default 'patientsky-hosting')
-    Param: datazone     - Adds 'datazone_x' tag, (default 'rr')
-    Param: role         - VM devide role, (default 'None')
-
     ** Required Params **
-    Param: cluster
+    Param: cluster      - vSphere cluster name
     Param: env          - Adds 'env_xxx' tag
-    Param: platform
+    Param: platform     - VM Platform e.g base:v1.0.0-coreos
     Param: backup       - Adds 'vsphere_tag_xxxx' tag
-    Param: vcpus
-    Param: memory
-    Param: disk
+    Param: vcpus        - Virtual CPUs (hot add)
+    Param: memory       - Virtual memory (hot add)
+    Param: disk         - Disk2 size
+    Param: hostname     - VM hostname (Optional if 'role' is set)
+    Param: ip_address   - VM IP address (Optional if 'vlan' is set)
 
     ** Optional Params **
-    Param: hostname     * optional if 'role' is set
-    Param: vlan
-    Param: ip_address   * optional if 'vlan' is set
+    Param: status       - VM status (default 'staged')
+    Param: tenant       - Netbox tenant (default 'patientsky-hosting')
+    Param: datazone     - Adds 'datazone_x' tag (default 'rr')
+    Param: role         - VM Device role (default 'None')
+    Param: vlan         - Used VLAN to find available IPs
     Param: extra_tags   - Adds extra tags to VM
     """
 
-    DEFAULT_CSV_FIELDS = "cluster,env,platform,backup,vcpus,memory,disk,hostname,ip_address,extra_tags"
+    DEFAULT_CSV_FIELDS = "status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address,extra_tags"
     datazone_rr: bool = True
 
     class Meta:
