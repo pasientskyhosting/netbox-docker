@@ -358,7 +358,7 @@ class BulkDeployVM(Script):
     Param: extra_tags   - Adds extra tags to VM
     """
 
-    DEFAULT_CSV_FIELDS = "status,tenant,cluster,datazone,env,platform,role,backup,vcpus,memory,disk,hostname,ip_address,extra_tags"
+    DEFAULT_CSV_FIELDS = "env,platform,role,backup,vcpus,memory,disk,hostname,ip_address,extra_tags"
     datazone_rr: bool = True
 
     class Meta:
@@ -505,7 +505,7 @@ class BulkDeployVM(Script):
                         vm.tenant,
                         vm.ip_address.address,
                         vm.cluster,
-                        raw_vm.get('env'),
+                        str(vm.env.name).split('_')[1],
                         vm.datazone,
                         vm.backup,
                     )
