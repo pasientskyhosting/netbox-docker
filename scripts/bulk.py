@@ -8,6 +8,7 @@ from virtualization.models import VirtualMachine, Cluster
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, TextVar, ChoiceVar, ObjectVar
 from extras.models import Tag
+from utilities.forms import APISelect
 
 
 class VM:
@@ -24,7 +25,7 @@ class VM:
     DEFAULT_DOMAIN_PRIVATE = 'privatedns.zone'
     DEFAULT_DOMAIN_PUBLIC = 'publicdns.zone'
 
-    def __init__(self, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address, hostname, vlan, extra_tags):
+    def __init__(self, status, tenant, cluster, datazone, env, platform, role, backup, vcpus, memory, disk, ip_address, hostname, extra_tags):
         # IP address can first be created after vm
         self.csv_ip_address = ip_address
         self.set_cluster(cluster)
@@ -39,19 +40,22 @@ class VM:
         self.set_memory(memory)
         self.set_disk(disk)
         self.set_hostname(hostname)
-        self.set_vlan(vlan)
+        self.set_vlan(None)
         self.set_extra_tags(extra_tags)
 
     def set_extra_tags(self, extra_tags):
         try:
-            self.extra_tags = extra_tags.split(',')
+            if extra_tags is None:
+                self.extra_tags = extra_tags
+            else:
+                self.extra_tags = extra_tags.split(',')
         except Exception as e:
             raise Exception("Extra tags - {0}".format(e))
 
     def set_vlan(self, vlan):
         try:
             self.vlan = VLAN.objects.get(
-                name=vlan,
+                vid=vlan,
                 site=self.site
             )
         except Exception:
@@ -86,7 +90,7 @@ class VM:
 
     def set_ip_address(self, vm):
         try:
-            if self.csv_ip_address is not None:
+            if not isinstance(self.vlan, VLAN):
                 ip_check = IPAddress.objects.filter(address=self.csv_ip_address)
                 if len(ip_check) > 0:
                     raise Exception(str(ip_check[0].address) + ' is already assigned to ' + str(ip_check[0].interface.name))
@@ -100,9 +104,12 @@ class VM:
                 # Auto assign IPs from vlan
                 prefix = Prefix.objects.get(
                     vlan=self.vlan,
-                    site=vm.site,
-                    is_pool=True
+                    site=vm.site
                 )
+                prefix.is_pool = True
+                # Save as pool
+                prefix.save()
+
                 ip_address = prefix.get_first_available_ip()
                 self.ip_address = IPAddress(
                     address=ip_address,
@@ -145,13 +152,19 @@ class VM:
 
     def set_backup_tag(self, backup):
         try:
-            self.backup = Tag.objects.filter(name="vsphere_tag_{0}".format(backup))[0]
+            if isinstance(backup, Tag):
+                self.backup = backup
+            else:
+                self.backup = Tag.objects.filter(name="vsphere_tag_{0}".format(backup))[0]
         except Exception as e:
             raise Exception("Tag backup {0} does not exist, {1}".format(backup, e))
 
     def set_site(self, site):
         try:
-            self.site = site
+            if isinstance(site, Site):
+                self.site = site
+            else:
+                raise Exception("site is not of instance 'Site'")
         except Exception as e:
             raise Exception('Site does not exist - ' + str(e))
 
@@ -165,13 +178,21 @@ class VM:
 
     def set_platform(self, platform):
         try:
-            self.platform = Platform.objects.get(name=platform)
+            if isinstance(platform, Platform):
+                self.platform = platform
+            else:
+                self.platform = Platform.objects.get(
+                    name=platform
+                )
         except Exception as e:
             raise Exception("Platform does not exist {0}".format(e))
 
     def set_env(self, env):
         try:
-            self.env = Tag.objects.get(name="env_{0}".format(env))
+            if isinstance(env, Tag):
+                self.env = env
+            else:
+                self.env = Tag.objects.get(name="env_{0}".format(env))
         except Exception as e:
             raise Exception("Tag env does not exist - {0}".format(e, env))
 
@@ -183,9 +204,12 @@ class VM:
 
     def set_cluster(self, cluster):
         try:
-            self.cluster = Cluster.objects.get(
-                name=cluster
-            )
+            if isinstance(cluster, Cluster):
+                self.cluster = cluster
+            else:
+                self.cluster = Cluster.objects.get(
+                    name=cluster
+                )
             self.set_site(self.cluster.site)
         except Exception as e:
             raise Exception("Cluster does not exist {0}".format(e))
@@ -221,8 +245,9 @@ class VM:
         vm.tags.add(self.backup)
         for tag in self.DEFAULT_TAGS:
             vm.tags.add(tag)
-        for tag in self.extra_tags:
-            vm.tags.add(tag)
+        if self.extra_tags is not None:
+            for tag in self.extra_tags:
+                vm.tags.add(tag)
         vm.save()
         self.set_tags(vm.tags)
 
@@ -308,6 +333,12 @@ class BulkDeployVM(Script):
     staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,consul:v1.0.1,backup_general_1,2,2048,20,odn1-vlb-consul-001,10.50.61.11/24,"voip,test_tag,cluster_id_voip_galera_002"
     staged,patientsky-hosting,odn1,1,vlb,base:v1.0.0-coreos,rediast:v0.2.0,backup_general_4,4,4096,30,odn1-vlb-rediast-001,10.50.61.12/24,"voip,test_tag,cluster_id_voip_galera_003"
 
+    Example CSV minimal (If all defaults are set):
+    vcpus,memory,disk,ip_address,extra_tags
+    1,1024,10,10.50.61.10/24,"voip,test_tag,cluster_id_voip_galera_001"
+    2,2048,20,10.50.61.11/24,"voip,test_tag,cluster_id_voip_galera_002"
+    4,4096,30,10.50.61.12/24,"voip,test_tag,cluster_id_voip_galera_003"
+
     ** Required Params **
     Param: cluster      - vSphere cluster name
     Param: env          - Adds 'env_xxx' tag
@@ -317,14 +348,13 @@ class BulkDeployVM(Script):
     Param: memory       - Virtual memory (hot add)
     Param: disk         - Disk2 size
     Param: hostname     - VM hostname (Optional if 'role' is set)
-    Param: ip_address   - VM IP address (Optional if 'vlan' is set)
+    Param: ip_address   - VM IP address
 
     ** Optional Params **
     Param: status       - VM status (default 'staged')
-    Param: tenant       - Netbox tenant (default 'patientsky-hosting')
+    Param: tenant       - Netbox tenant (default slug:'patientsky-hosting')
     Param: datazone     - Adds 'datazone_x' tag (default 'rr')
     Param: role         - VM Device role (default 'None')
-    Param: vlan         - Used VLAN to find available IPs
     Param: extra_tags   - Adds extra tags to VM
     """
 
@@ -334,8 +364,8 @@ class BulkDeployVM(Script):
     class Meta:
         name = "Bulk deploy new VMs"
         description = "Deploy new virtual machines from existing platforms"
-        fields = ['vms', 'default_status', 'default_tenant', 'default_datazone']
-        field_order = ['vms', 'default_status', 'default_tenant', 'default_datazone']
+        fields = ['vms', 'default_status', 'default_tenant', 'default_datazone', 'default_backup']
+        field_order = ['vms', 'default_status', 'default_tenant', 'default_datazone', 'default_backup']
         commit_default = False
 
     vms = TextVar(
@@ -357,7 +387,7 @@ class BulkDeployVM(Script):
 
     default_tenant = ObjectVar(
         label="Default Tenant",
-        default="PatientSky Hosting",
+        default=1,
         required=False,
         description="Default CSV field `tenant` if none given",
         queryset=Tenant.objects.all()
@@ -373,6 +403,57 @@ class BulkDeployVM(Script):
             ('1', '1'),
             ('2', '2')
         )
+    )
+
+    default_cluster = ObjectVar(
+        label="Default Cluster",
+        description="Default CSV field `cluster` if none given",
+        required=False,
+        queryset=Cluster.objects.all()
+    )
+
+    default_env = ObjectVar(
+        label="Default Environment",
+        description="Default CSV field `env` if none given",
+        default="env_inf",
+        required=False,
+        queryset=Tag.objects.filter(
+            name__startswith='env_',
+        ).order_by('name'),
+    )
+
+    default_platform = ObjectVar(
+        label="Default Platform",
+        description="Default CSV field `platform` if none given",
+        required=False,
+        widget=APISelect(
+            api_url='/api/dcim/platforms/?name__ic=%3Av',
+            display_field='display_name',
+        ),
+        queryset=Platform.objects.all().order_by('name')
+    )
+
+    default_role = ObjectVar(
+        label="Default Role",
+        description="Default CSV field `role` if none given",
+        default=None,
+        required=False,
+        widget=APISelect(
+            api_url='/api/dcim/device-roles/?vm_role=true&name__ic=%3Av',
+            display_field='display_name',
+        ),
+        queryset=DeviceRole.objects.filter(
+            vm_role=True
+        ).order_by('name')
+    )
+
+    default_backup = ObjectVar(
+        label="Default Backup",
+        description="Default CSV field `backup` if none given",
+        required=False,
+        queryset=Tag.objects.filter(
+            name__startswith='vsphere_tag_',
+        ).order_by('name'),
     )
 
     def get_vm_data(self):
@@ -403,22 +484,21 @@ class BulkDeployVM(Script):
                     status=raw_vm.get('status') if raw_vm.get('status') is not None else data['default_status'],
                     tenant=raw_vm.get('tenant') if raw_vm.get('tenant') is not None else data['default_tenant'],
                     datazone=raw_vm.get('datazone') if raw_vm.get('datazone') is not None else self.get_datazone(data['default_datazone']),
-                    cluster=raw_vm.get('cluster'),
-                    env=raw_vm.get('env'),
-                    platform=raw_vm.get('platform'),
-                    role=raw_vm.get('role'),
-                    backup=raw_vm.get('backup'),
+                    cluster=raw_vm.get('cluster') if raw_vm.get('cluster') is not None else data['default_cluster'],
+                    env=raw_vm.get('env') if raw_vm.get('env') is not None else data['default_env'],
+                    platform=raw_vm.get('platform') if raw_vm.get('platform') is not None else data['default_platform'],
+                    role=raw_vm.get('role') if raw_vm.get('role') is not None else data['default_role'],
+                    backup=raw_vm.get('backup') if raw_vm.get('backup') is not None else data['default_backup'],
                     vcpus=raw_vm.get('vcpus'),
                     memory=raw_vm.get('memory'),
                     disk=raw_vm.get('disk'),
                     hostname=raw_vm.get('hostname'),
                     ip_address=raw_vm.get('ip_address'),
-                    vlan=raw_vm.get('vlan'),
                     extra_tags=raw_vm.get('extra_tags'),
                 )
                 vm.create()
                 self.log_success(
-                    "{} `{}` for `{}`, `{}`, in cluster `{}`, env `{}`, datazone `{}`, extra \n```\n{}\n```\n".
+                    "{} `{}` for `{}`, `{}`, in cluster `{}`, env `{}`, datazone `{}`, backup `{}`".
                     format(
                         vm.status.capitalize(),
                         vm.hostname,
@@ -427,7 +507,7 @@ class BulkDeployVM(Script):
                         vm.cluster,
                         raw_vm.get('env'),
                         vm.datazone,
-                        vm.extra_tags
+                        vm.backup,
                     )
                 )
                 line += 1
