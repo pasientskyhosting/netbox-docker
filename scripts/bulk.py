@@ -170,11 +170,11 @@ class VM:
 
     def set_role(self, role):
         try:
-            self.role = DeviceRole.objects.filter(
+            self.role = DeviceRole.objects.get(
                 name=role
-            )[0]
-        except Exception:
-            self.role = None
+            )
+        except Exception as e:
+            raise Exception('Role does not exist - ' + str(e))
 
     def set_platform(self, platform):
         try:
@@ -348,13 +348,13 @@ class BulkDeployVM(Script):
     Param: memory       - Virtual memory (hot add)
     Param: disk         - Disk2 size
     Param: hostname     - VM hostname (Optional if 'role' is set)
+    Param: role         - VM Device role
     Param: ip_address   - VM IP address
 
     ** Optional Params **
     Param: status       - VM status (default 'staged')
     Param: tenant       - Netbox tenant (default slug:'patientsky-hosting')
     Param: datazone     - Adds 'datazone_x' tag (default 'rr')
-    Param: role         - VM Device role (default 'None')
     Param: extra_tags   - Adds extra tags to VM
     """
 
@@ -364,8 +364,8 @@ class BulkDeployVM(Script):
     class Meta:
         name = "Bulk deploy new VMs"
         description = "Deploy new virtual machines from existing platforms"
-        fields = ['vms', 'default_status', 'default_tenant', 'default_datazone', 'default_backup']
-        field_order = ['vms', 'default_status', 'default_tenant', 'default_datazone', 'default_backup']
+        fields = ['vms', 'default_status', 'default_tenant', 'default_datazone', 'default_backup', 'default_role']
+        field_order = ['vms', 'default_status', 'default_tenant', 'default_datazone', 'default_backup', 'default_role']
         commit_default = False
 
     vms = TextVar(
