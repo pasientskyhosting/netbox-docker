@@ -427,7 +427,7 @@ class BulkDeployVM(Script):
         description="Default CSV field `platform` if none given",
         required=False,
         widget=APISelect(
-            api_url='/api/dcim/platforms/?name__ic=%3Av',
+            api_url='/api/dcim/platforms/?name__ic=_',
             display_field='display_name',
         ),
         queryset=Platform.objects.all().order_by('name')
@@ -439,7 +439,7 @@ class BulkDeployVM(Script):
         default=None,
         required=False,
         widget=APISelect(
-            api_url='/api/dcim/device-roles/?vm_role=true&name__ic=%3Av',
+            api_url='/api/dcim/device-roles/?vm_role=true',
             display_field='display_name',
         ),
         queryset=DeviceRole.objects.filter(
