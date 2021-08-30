@@ -19,12 +19,12 @@ services:
   netbox-worker:
     <<: *netbox
     depends_on:
-    - redis
+      - redis
     entrypoint:
-    - /opt/netbox/venv/bin/python
-    - /opt/netbox/netbox/manage.py
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
     command:
-    - rqworker
+      - rqworker
     ports: []
 
   # postgres
