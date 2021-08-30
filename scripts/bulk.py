@@ -1,15 +1,15 @@
 import netaddr
 import csv
 from dcim.choices import InterfaceTypeChoices, InterfaceModeChoices
-from dcim.models import Platform, DeviceRole, Site
-from ipam.models import IPAddress, VRF, Interface, Prefix, VLAN
+from dcim.models import Platform, DeviceRole, Site, Interface
+from ipam.models import IPAddress, VRF, Prefix, VLAN
 from tenancy.models import Tenant
-from virtualization.models import VirtualMachine, Cluster
+from virtualization.models import VirtualMachine, Cluster, VMInterface
 from virtualization.choices import VirtualMachineStatusChoices
 from extras.scripts import Script, TextVar, ChoiceVar, ObjectVar
 from extras.models import Tag
 from utilities.forms import APISelect
-
+from django.contrib.contenttypes.models import ContentType
 
 class VM:
 
@@ -142,13 +142,11 @@ class VM:
             ip_check = IPAddress.objects.filter(address=self.csv_ip_address)
             if len(ip_check) > 0:
                 raise Exception(str(ip_check[0].address) + ' is already assigned')
-
             if not isinstance(self.vlan, VLAN):
                 self.ip_address = IPAddress(
                     address=self.csv_ip_address,
                     vrf=self.get_vrf(),
                     tenant=self.tenant,
-                    family=4,
                 )
             else:
                 # Auto assign IPs from vlan
@@ -165,7 +163,6 @@ class VM:
                     address=ip_address,
                     vrf=self.get_vrf(),
                     tenant=self.tenant,
-                    family=4,
                 )
             self.ip_address.dns_name = self.get_fqdn()
             self.ip_address.save()
@@ -254,13 +251,13 @@ class VM:
             else:
                 self.env = Tag.objects.get(name="env_{0}".format(env))
         except Exception as e:
-            raise Exception("Tag env does not exist - {0}".format(e, env))
+            raise Exception("Tag env does not exist! - {0}".format(e))
 
     def set_datazone(self, datazone):
         try:
             self.datazone = Tag.objects.get(name="datazone_{0}".format(datazone))
         except Exception as e:
-            raise Exception("Tag datazone does not exist - {0}".format(e))
+            raise Exception("Tag datazone does not exist! - {0}".format(e))
 
     def set_cluster(self, cluster):
         try:
@@ -356,11 +353,10 @@ class VM:
 
             interfaces = vm.get_config_context().get('interfaces')
 
-            interface = Interface(
+            interface = VMInterface(
                 name=interfaces['nic0']['name'],
                 mtu=interfaces['nic0']['mtu'],
-                virtual_machine=vm,
-                type=InterfaceTypeChoices.TYPE_VIRTUAL
+                virtual_machine=vm
             )
 
             # If we need anything other than Access, here is were to change it
@@ -370,11 +366,14 @@ class VM:
 
             interface.save()
 
-            self.ip_address.interface = interface
+            type = ContentType.objects.get(app_label="virtualization", model="vminterface")
+            self.ip_address.assigned_object_type = type
+            self.ip_address.assigned_object_id = interface.id
+            self.ip_address.assigned_object = interface
             self.ip_address.save()
 
         except Exception as e:
-            raise Exception("Error while creating interface - {}".format(e))
+            raise Exception("Error while creating interface - {0}".format(e))
         return True
 
     def create(self):
@@ -450,11 +449,11 @@ class BulkDeployVM(Script):
     )
 
     default_tenant = ObjectVar(
+        model=Tenant,
         label="Default Tenant",
         default=1,
         required=False,
         description="Default CSV field `tenant` if none given",
-        queryset=Tenant.objects.all()
     )
 
     default_datazone = ChoiceVar(
@@ -470,63 +469,62 @@ class BulkDeployVM(Script):
     )
 
     default_cluster = ObjectVar(
+        model=Cluster,
         label="Default Cluster",
         description="Default CSV field `cluster` if none given",
         required=False,
-        queryset=Cluster.objects.all()
     )
 
     default_env = ObjectVar(
+        model=Tag,
         label="Default Environment",
         description="Default CSV field `env` if none given",
-        default="env_inf",
         required=False,
-        queryset=Tag.objects.filter(
-            name__startswith='env_',
-        ).order_by('name'),
+        query_params={
+            'name__isw': 'env_'
+        }
     )
 
     default_platform = ObjectVar(
+        model=Platform,
         label="Default Platform",
         description="Default CSV field `platform` if none given",
         required=False,
-        widget=APISelect(
-            api_url='/api/dcim/platforms/?name__ic=_',
-            display_field='display_name',
-        ),
-        queryset=Platform.objects.all().order_by('name')
+        query_params=dict(
+            name__isw=("flat", "ubuntu", "core"),
+        )
     )
 
     default_role = ObjectVar(
+        model=DeviceRole,
         label="Default Role",
         description="Default CSV field `role` if none given",
         default=None,
         required=False,
-        widget=APISelect(
-            api_url='/api/dcim/device-roles/?vm_role=true',
-            display_field='display_name',
-        ),
-        queryset=DeviceRole.objects.filter(
-            vm_role=True
-        ).order_by('name')
+        query_params={
+            'vm_role': True
+        }
     )
 
     default_backup = ObjectVar(
+        model=Tag,
         label="Default Backup",
         description="Default CSV field `backup` if none given",
         required=False,
-        queryset=Tag.objects.filter(
-            name__startswith='backup_',
-        ).order_by('name'),
+        query_params=dict(
+            name__nic='offsite',
+            name__isw='backup'
+        )
     )
 
     default_backup_offsite = ObjectVar(
+        model=Tag,
         label="Default Offsite Backup",
         description="Default CSV field `backup_offsite` if none given",
         required=False,
-        queryset=Tag.objects.filter(
-            name__startswith='backup_off',
-        ).order_by('name'),
+        query_params=dict(
+            name__ic='offsite'
+        )
     )
 
     def get_vm_data(self):
@@ -547,7 +545,8 @@ class BulkDeployVM(Script):
             self.datazone_rr = not self.datazone_rr
         return datazone
 
-    def run(self, data):
+    def run(self, data, commit):
+
         # Set data from raw csv
         self.set(data)
         line = 1
