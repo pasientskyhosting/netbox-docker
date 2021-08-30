@@ -1,32 +1,23 @@
-from django.contrib.auth.models import Permission, Group, User
-from ruamel.yaml import YAML
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/groups.yml')
-if not file.is_file():
-  sys.exit()
+from startup_script_utils import load_yaml
+from users.models import AdminGroup, AdminUser
 
-with file.open('r') as stream:
-  yaml=YAML(typ='safe')
-  groups = yaml.load(stream)
+groups = load_yaml("/opt/netbox/initializers/groups.yml")
+if groups is None:
+    sys.exit()
 
-  if groups is not None:
-    for groupname, group_details in groups.items():
-      group, created = Group.objects.get_or_create(name=groupname)
+for groupname, group_details in groups.items():
+    group, created = AdminGroup.objects.get_or_create(name=groupname)
 
-      if created:
+    if created:
         print("👥 Created group", groupname)
 
-      for username in group_details.get('users', []):
-        user = User.objects.get(username=username)
+    for username in group_details.get("users", []):
+        user = AdminUser.objects.get(username=username)
 
         if user:
-          user.groups.add(group)
+            group.user_set.add(user)
+            print(" 👤 Assigned user %s to group %s" % (username, AdminGroup.name))
 
-      group_permissions = group_details.get('permissions', [])
-      if group_permissions:
-        group.permissions.clear()
-        for permission_codename in group_details.get('permissions', []):
-          for permission in Permission.objects.filter(codename=permission_codename):
-            group.permissions.add(permission)
+    group.save()

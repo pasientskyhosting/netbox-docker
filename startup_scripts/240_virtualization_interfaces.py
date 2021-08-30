@@ -1,45 +1,27 @@
-from dcim.models import Interface
-from virtualization.models import VirtualMachine
-from extras.models import CustomField, CustomFieldValue
-from ruamel.yaml import YAML
-
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/virtualization_interfaces.yml')
-if not file.is_file():
-  sys.exit()
+from startup_script_utils import load_yaml, pop_custom_fields, set_custom_fields_values
+from virtualization.models import VirtualMachine, VMInterface
 
-with file.open('r') as stream:
-  yaml = YAML(typ='safe')
-  interfaces = yaml.load(stream)
+interfaces = load_yaml("/opt/netbox/initializers/virtualization_interfaces.yml")
 
-  required_assocs = {
-    'virtual_machine': (VirtualMachine, 'name')
-  }
+if interfaces is None:
+    sys.exit()
 
-  if interfaces is not None:
-    for params in interfaces:
-      custom_fields = params.pop('custom_fields', None)
+required_assocs = {"virtual_machine": (VirtualMachine, "name")}
 
-      for assoc, details in required_assocs.items():
+for params in interfaces:
+    custom_field_data = pop_custom_fields(params)
+
+    for assoc, details in required_assocs.items():
         model, field = details
-        query = { field: params.pop(assoc) }
+        query = {field: params.pop(assoc)}
 
         params[assoc] = model.objects.get(**query)
 
-      interface, created = Interface.objects.get_or_create(**params)
+    interface, created = VMInterface.objects.get_or_create(**params)
 
-      if created:
-        if custom_fields is not None:
-          for cf_name, cf_value in custom_fields.items():
-            custom_field = CustomField.objects.get(name=cf_name)
-            custom_field_value = CustomFieldValue.objects.create(
-              field=custom_field,
-              obj=interface,
-              value=cf_value
-            )
-
-            interface.custom_field_values.add(custom_field_value)
+    if created:
+        set_custom_fields_values(interface, custom_field_data)
 
         print("🧷 Created interface", interface.name, interface.virtual_machine.name)

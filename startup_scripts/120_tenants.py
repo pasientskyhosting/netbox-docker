@@ -1,45 +1,28 @@
-from tenancy.models import Tenant, TenantGroup
-from extras.models import CustomField, CustomFieldValue
-from ruamel.yaml import YAML
-
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/tenants.yml')
-if not file.is_file():
-  sys.exit()
+from startup_script_utils import load_yaml, pop_custom_fields, set_custom_fields_values
+from tenancy.models import Tenant, TenantGroup
 
-with file.open('r') as stream:
-  yaml = YAML(typ='safe')
-  tenants = yaml.load(stream)
+tenants = load_yaml("/opt/netbox/initializers/tenants.yml")
 
-  optional_assocs = {
-    'group': (TenantGroup, 'name')
-  }
+if tenants is None:
+    sys.exit()
 
-  if tenants is not None:
-    for params in tenants:
-      custom_fields = params.pop('custom_fields', None)
+optional_assocs = {"group": (TenantGroup, "name")}
 
-      for assoc, details in optional_assocs.items():
+for params in tenants:
+    custom_field_data = pop_custom_fields(params)
+
+    for assoc, details in optional_assocs.items():
         if assoc in params:
-          model, field = details
-          query = { field: params.pop(assoc) }
+            model, field = details
+            query = {field: params.pop(assoc)}
 
-          params[assoc] = model.objects.get(**query)
+            params[assoc] = model.objects.get(**query)
 
-      tenant, created = Tenant.objects.get_or_create(**params)
+    tenant, created = Tenant.objects.get_or_create(**params)
 
-      if created:
-        if custom_fields is not None:
-          for cf_name, cf_value in custom_fields.items():
-            custom_field = CustomField.objects.get(name=cf_name)
-            custom_field_value = CustomFieldValue.objects.create(
-              field=custom_field,
-              obj=tenant,
-              value=cf_value
-            )
-
-            tenant.custom_field_values.add(custom_field_value)
+    if created:
+        set_custom_fields_values(tenant, custom_field_data)
 
         print("👩‍💻 Created Tenant", tenant.name)

@@ -1,66 +1,46 @@
-from dcim.models import Site, Platform, DeviceRole
-from virtualization.models import Cluster, VirtualMachine
-from virtualization.constants import VM_STATUS_CHOICES
-from tenancy.models import Tenant
-from extras.models import CustomField, CustomFieldValue
-from ruamel.yaml import YAML
-
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/virtual_machines.yml')
-if not file.is_file():
-  sys.exit()
+from dcim.models import DeviceRole, Platform
+from startup_script_utils import load_yaml, pop_custom_fields, set_custom_fields_values
+from tenancy.models import Tenant
+from virtualization.models import Cluster, VirtualMachine
 
-with file.open('r') as stream:
-  yaml = YAML(typ='safe')
-  virtual_machines = yaml.load(stream)
+virtual_machines = load_yaml("/opt/netbox/initializers/virtual_machines.yml")
 
-  required_assocs = {
-    'cluster': (Cluster, 'name')
-  }
+if virtual_machines is None:
+    sys.exit()
 
-  optional_assocs = {
-    'tenant': (Tenant, 'name'),
-    'platform': (Platform, 'name'),
-    'role': (DeviceRole, 'name')
-  }
+required_assocs = {"cluster": (Cluster, "name")}
 
-  if virtual_machines is not None:
-    for params in virtual_machines:
-      custom_fields = params.pop('custom_fields', None)
+optional_assocs = {
+    "tenant": (Tenant, "name"),
+    "platform": (Platform, "name"),
+    "role": (DeviceRole, "name"),
+}
 
-      for assoc, details in required_assocs.items():
+for params in virtual_machines:
+    custom_field_data = pop_custom_fields(params)
+
+    # primary ips are handled later in `270_primary_ips.py`
+    params.pop("primary_ip4", None)
+    params.pop("primary_ip6", None)
+
+    for assoc, details in required_assocs.items():
         model, field = details
-        query = { field: params.pop(assoc) }
+        query = {field: params.pop(assoc)}
 
         params[assoc] = model.objects.get(**query)
 
-      for assoc, details in optional_assocs.items():
+    for assoc, details in optional_assocs.items():
         if assoc in params:
-          model, field = details
-          query = { field: params.pop(assoc) }
+            model, field = details
+            query = {field: params.pop(assoc)}
 
-          params[assoc] = model.objects.get(**query)
+            params[assoc] = model.objects.get(**query)
 
-      if 'status' in params:
-        for vm_status in VM_STATUS_CHOICES:
-          if params['status'] in vm_status:
-            params['status'] = vm_status[0]
-            break
+    virtual_machine, created = VirtualMachine.objects.get_or_create(**params)
 
-      virtual_machine, created = VirtualMachine.objects.get_or_create(**params)
-
-      if created:
-        if custom_fields is not None:
-          for cf_name, cf_value in custom_fields.items():
-            custom_field = CustomField.objects.get(name=cf_name)
-            custom_field_value = CustomFieldValue.objects.create(
-              field=custom_field,
-              obj=virtual_machine,
-              value=cf_value
-            )
-
-            virtual_machine.custom_field_values.add(custom_field_value)
+    if created:
+        set_custom_fields_values(virtual_machine, custom_field_data)
 
         print("🖥️ Created virtual machine", virtual_machine.name)

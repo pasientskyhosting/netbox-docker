@@ -1,28 +1,23 @@
-from dcim.models import RackRole
-from ruamel.yaml import YAML
-from utilities.forms import COLOR_CHOICES
-
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/rack_roles.yml')
-if not file.is_file():
-  sys.exit()
+from dcim.models import RackRole
+from startup_script_utils import load_yaml
+from utilities.choices import ColorChoices
 
-with file.open('r') as stream:
-  yaml=YAML(typ='safe')
-  rack_roles = yaml.load(stream)
+rack_roles = load_yaml("/opt/netbox/initializers/rack_roles.yml")
 
-  if rack_roles is not None:
-    for params in rack_roles:
-      if 'color' in params:
-        color = params.pop('color')
+if rack_roles is None:
+    sys.exit()
 
-        for color_tpl in COLOR_CHOICES:
-          if color in color_tpl:
-            params['color'] = color_tpl[0]
+for params in rack_roles:
+    if "color" in params:
+        color = params.pop("color")
 
-      rack_role, created = RackRole.objects.get_or_create(**params)
+        for color_tpl in ColorChoices:
+            if color in color_tpl:
+                params["color"] = color_tpl[0]
 
-      if created:
+    rack_role, created = RackRole.objects.get_or_create(**params)
+
+    if created:
         print("🎨 Created rack role", rack_role.name)

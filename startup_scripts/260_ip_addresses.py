@@ -1,72 +1,62 @@
-from ipam.models import IPAddress, VRF
-from ipam.constants import IPADDRESS_STATUS_CHOICES
-from dcim.models import Device, Interface
-from virtualization.models import VirtualMachine
-from tenancy.models import Tenant
-from extras.models import CustomField, CustomFieldValue
-from ruamel.yaml import YAML
-
-from netaddr import IPNetwork
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/ip_addresses.yml')
-if not file.is_file():
-  sys.exit()
+from dcim.models import Device, Interface
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q
+from ipam.models import VRF, IPAddress
+from netaddr import IPNetwork
+from startup_script_utils import load_yaml, pop_custom_fields, set_custom_fields_values
+from tenancy.models import Tenant
+from virtualization.models import VirtualMachine, VMInterface
 
-with file.open('r') as stream:
-  yaml = YAML(typ='safe')
-  ip_addresses = yaml.load(stream)
+ip_addresses = load_yaml("/opt/netbox/initializers/ip_addresses.yml")
 
-  optional_assocs = {
-    'tenant': (Tenant, 'name'),
-    'vrf': (VRF, 'name'),
-    'interface': (Interface, 'name')
-  }
+if ip_addresses is None:
+    sys.exit()
 
-  if ip_addresses is not None:
-    for params in ip_addresses:
-      vm = params.pop('virtual_machine', None)
-      device = params.pop('device', None)
-      custom_fields = params.pop('custom_fields', None)
-      params['address'] = IPNetwork(params['address'])
+optional_assocs = {
+    "tenant": (Tenant, "name"),
+    "vrf": (VRF, "name"),
+    "interface": (None, None),
+}
 
-      if vm and device:
+vm_interface_ct = ContentType.objects.filter(
+    Q(app_label="virtualization", model="vminterface")
+).first()
+interface_ct = ContentType.objects.filter(Q(app_label="dcim", model="interface")).first()
+
+for params in ip_addresses:
+    custom_field_data = pop_custom_fields(params)
+
+    vm = params.pop("virtual_machine", None)
+    device = params.pop("device", None)
+    params["address"] = IPNetwork(params["address"])
+
+    if vm and device:
         print("IP Address can only specify one of the following: virtual_machine or device.")
         sys.exit()
 
-      for assoc, details in optional_assocs.items():
+    for assoc, details in optional_assocs.items():
         if assoc in params:
-          model, field = details
-          if assoc == 'interface':
-              if vm:
-                  vm_id = VirtualMachine.objects.get(name=vm).id
-                  query = { field: params.pop(assoc), "virtual_machine_id": vm_id }
-              elif device:
-                  dev_id = Device.objects.get(name=device).id
-                  query = { field: params.pop(assoc), "device_id": dev_id }
-          else:
-              query = { field: params.pop(assoc) }
-          params[assoc] = model.objects.get(**query)
+            model, field = details
+            if assoc == "interface":
+                if vm:
+                    vm_id = VirtualMachine.objects.get(name=vm).id
+                    query = {"name": params.pop(assoc), "virtual_machine_id": vm_id}
+                    params["assigned_object_type"] = vm_interface_ct
+                    params["assigned_object_id"] = VMInterface.objects.get(**query).id
+                elif device:
+                    dev_id = Device.objects.get(name=device).id
+                    query = {"name": params.pop(assoc), "device_id": dev_id}
+                    params["assigned_object_type"] = interface_ct
+                    params["assigned_object_id"] = Interface.objects.get(**query).id
+            else:
+                query = {field: params.pop(assoc)}
+                params[assoc] = model.objects.get(**query)
 
-      if 'status' in params:
-        for ip_status in IPADDRESS_STATUS_CHOICES:
-          if params['status'] in ip_status:
-            params['status'] = ip_status[0]
-            break
+    ip_address, created = IPAddress.objects.get_or_create(**params)
 
-      ip_address, created = IPAddress.objects.get_or_create(**params)
-
-      if created:
-        if custom_fields is not None:
-          for cf_name, cf_value in custom_fields.items():
-            custom_field = CustomField.objects.get(name=cf_name)
-            custom_field_value = CustomFieldValue.objects.create(
-              field=custom_field,
-              obj=ip_address,
-              value=cf_value
-            )
-
-            ip_address.custom_field_values.add(custom_field_value)
+    if created:
+        set_custom_fields_values(ip_address, custom_field_data)
 
         print("🧬 Created IP Address", ip_address.address)

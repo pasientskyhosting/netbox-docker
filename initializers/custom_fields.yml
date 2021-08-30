@@ -1,3 +1,18 @@
+## Possible Choices:
+##   type:
+##   - text
+##   - integer
+##   - boolean
+##   - date
+##   - url
+##   - select
+##   filter_logic:
+##   - disabled
+##   - loose
+##   - exact
+##
+## Examples:
+
 # text_field:
 #   type: text
 #   label: Custom Text
@@ -22,46 +37,42 @@
 #   weight: 10
 #   on_objects:
 #   - tenancy.models.Tenant
-# selection_field:
-#   type: selection
+# select_field:
+#   type: select
 #   label: Choose between items
 #   required: false
 #   filter_logic: exact
 #   weight: 30
+#   default: First Item
 #   on_objects:
 #   - dcim.models.Device
 #   choices:
-#   - value: First Item
-#     weight: 10
-#   - value: Second Item
-#     weight: 20
-#   - value: Third Item
-#     weight: 30
-#   - value: Fifth Item
-#     weight: 50
-#   - value: Fourth Item
-#     weight: 40
-# selection_field_auto_weight:
-#    type: selection
-#    label: Choose between items
-#    required: false
-#    filter_logic: loose
-#    weight: 30
-#    on_objects:
-#     - dcim.models.Device
-#    choices:
-#     - value: A
-#     - value: B
-#     - value: C
-#     - value: "D like deprecated"
-#       weight: 999
-#     - value: E
+#   - First Item
+#   - Second Item
+#   - Third Item
+#   - Fifth Item
+#   - Fourth Item
+# select_field_legacy_format:
+#   type: select
+#   label: Choose between items
+#   required: false
+#   filter_logic: loose
+#   weight: 30
+#   on_objects:
+#   - dcim.models.Device
+#   choices:
+#   - value: A # this is the deprecated format.
+#   - value: B # we only use it for the tests.
+#   - value: C # please see above for the new format.
+#   - value: "D like deprecated"
+#     weight: 999
+#   - value: E
 # boolean_field:
 #   type: boolean
 #   label: Yes Or No?
 #   required: true
 #   filter_logic: loose
-#   default: "false" # important: but "false" in quotes!
+#   default: "false" # important: put "false" in quotes!
 #   weight: 90
 #   on_objects:
 #   - dcim.models.Device

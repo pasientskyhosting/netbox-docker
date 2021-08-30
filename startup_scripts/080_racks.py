@@ -1,66 +1,41 @@
-from dcim.models import Site, RackRole, Rack, RackGroup
-from tenancy.models import Tenant
-from extras.models import CustomField, CustomFieldValue
-from dcim.constants import RACK_TYPE_CHOICES, RACK_WIDTH_CHOICES
-from ruamel.yaml import YAML
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/racks.yml')
-if not file.is_file():
-  sys.exit()
+from dcim.models import Location, Rack, RackRole, Site
+from startup_script_utils import load_yaml, pop_custom_fields, set_custom_fields_values
+from tenancy.models import Tenant
 
-with file.open('r') as stream:
-  yaml = YAML(typ='safe')
-  racks = yaml.load(stream)
+racks = load_yaml("/opt/netbox/initializers/racks.yml")
 
-  required_assocs = {
-    'site': (Site, 'name')
-  }
+if racks is None:
+    sys.exit()
 
-  optional_assocs = {
-    'role': (RackRole, 'name'),
-    'tenant': (Tenant, 'name'),
-    'group': (RackGroup, 'name')
-  }
+required_assocs = {"site": (Site, "name")}
 
-  if racks is not None:
-    for params in racks:
-      custom_fields = params.pop('custom_fields', None)
+optional_assocs = {
+    "role": (RackRole, "name"),
+    "tenant": (Tenant, "name"),
+    "location": (Location, "name"),
+}
 
-      for assoc, details in required_assocs.items():
+for params in racks:
+    custom_field_data = pop_custom_fields(params)
+
+    for assoc, details in required_assocs.items():
         model, field = details
-        query = { field: params.pop(assoc) }
+        query = {field: params.pop(assoc)}
 
         params[assoc] = model.objects.get(**query)
 
-      for assoc, details in optional_assocs.items():
+    for assoc, details in optional_assocs.items():
         if assoc in params:
-          model, field = details
-          query = { field: params.pop(assoc) }
+            model, field = details
+            query = {field: params.pop(assoc)}
 
-          params[assoc] = model.objects.get(**query)
+            params[assoc] = model.objects.get(**query)
 
-      for rack_type in RACK_TYPE_CHOICES:
-        if params['type'] in rack_type:
-          params['type'] = rack_type[0]
+    rack, created = Rack.objects.get_or_create(**params)
 
-      for rack_width in RACK_WIDTH_CHOICES:
-        if params['width'] in rack_width:
-          params['width'] = rack_width[0]
-
-      rack, created = Rack.objects.get_or_create(**params)
-
-      if created:
-        if custom_fields is not None:
-          for cf_name, cf_value in custom_fields.items():
-            custom_field = CustomField.objects.get(name=cf_name)
-            custom_field_value = CustomFieldValue.objects.create(
-              field=custom_field,
-              obj=rack,
-              value=cf_value
-            )
-
-            rack.custom_field_values.add(custom_field_value)
+    if created:
+        set_custom_fields_values(rack, custom_field_data)
 
         print("🔳 Created rack", rack.site, rack.name)

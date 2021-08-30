@@ -1,46 +1,40 @@
-from dcim.models import Site
-from ipam.models import VLANGroup
-from extras.models import CustomField, CustomFieldValue
-from ruamel.yaml import YAML
-
-from pathlib import Path
 import sys
 
-file = Path('/opt/netbox/initializers/vlan_groups.yml')
-if not file.is_file():
-  sys.exit()
+from django.contrib.contenttypes.models import ContentType
+from ipam.models import VLANGroup
+from startup_script_utils import load_yaml, pop_custom_fields, set_custom_fields_values
 
-with file.open('r') as stream:
-  yaml = YAML(typ='safe')
-  vlan_groups = yaml.load(stream)
+vlan_groups = load_yaml("/opt/netbox/initializers/vlan_groups.yml")
 
-  optional_assocs = {
-    'site': (Site, 'name')
-  }
+if vlan_groups is None:
+    sys.exit()
 
-  if vlan_groups is not None:
-    for params in vlan_groups:
-      custom_fields = params.pop('custom_fields', None)
+optional_assocs = {"scope": (None, "name")}
 
-      for assoc, details in optional_assocs.items():
+for params in vlan_groups:
+    custom_field_data = pop_custom_fields(params)
+
+    for assoc, details in optional_assocs.items():
         if assoc in params:
-          model, field = details
-          query = { field: params.pop(assoc) }
+            model, field = details
+            query = {field: params.pop(assoc)}
+            # Get model from Contenttype
+            scope_type = params.pop("scope_type", None)
+            if not scope_type:
+                print(f"VLAN Group '{params['name']}': scope_type is missing from VLAN Group")
+                continue
+            app_label, model = str(scope_type).split(".")
+            ct = ContentType.objects.filter(app_label=app_label, model=model).first()
+            if not ct:
+                print(
+                    f"VLAN Group '{params['name']}': ContentType for "
+                    + f"app_label = '{app_label}' and model = '{model}' not found"
+                )
+                continue
+            params["scope_id"] = ct.model_class().objects.get(**query).id
+    vlan_group, created = VLANGroup.objects.get_or_create(**params)
 
-          params[assoc] = model.objects.get(**query)
-
-      vlan_group, created = VLANGroup.objects.get_or_create(**params)
-
-      if created:
-        if custom_fields is not None:
-          for cf_name, cf_value in custom_fields.items():
-            custom_field = CustomField.objects.get(name=cf_name)
-            custom_field_value = CustomFieldValue.objects.create(
-              field=custom_field,
-              obj=vlan_group,
-              value=cf_value
-            )
-
-            vlan_group.custom_field_values.add(custom_field_value)
+    if created:
+        set_custom_fields_values(vlan_group, custom_field_data)
 
         print("🏘️ Created VLAN Group", vlan_group.name)

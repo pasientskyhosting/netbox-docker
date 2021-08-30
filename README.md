@@ -3,37 +3,41 @@
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/netbox-community/netbox-docker)][github-release]
 [![GitHub stars](https://img.shields.io/github/stars/netbox-community/netbox-docker)][github-stargazers]
 ![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed-raw/netbox-community/netbox-docker)
-![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/netboxcommunity/netbox)
+![Github release workflow](https://img.shields.io/github/workflow/status/netbox-community/netbox-docker/release)
 ![Docker Pulls](https://img.shields.io/docker/pulls/netboxcommunity/netbox)
-[![MicroBadger Layers](https://img.shields.io/microbadger/layers/netboxcommunity/netbox)][netbox-docker-microbadger]
-[![MicroBadger Size](https://img.shields.io/microbadger/image-size/netboxcommunity/netbox)][netbox-docker-microbadger]
 [![GitHub license](https://img.shields.io/github/license/netbox-community/netbox-docker)][netbox-docker-license]
 
-[The Github repository](netbox-docker-github) houses the components needed to build Netbox as a Docker container.
-Images are built using this code and are released to [Docker Hub][netbox-dockerhub] once a day.
+[The Github repository](netbox-docker-github) houses the components needed to build NetBox as a Docker container.
+Images are built using this code and are released to [Docker Hub][netbox-dockerhub] and [Quay.io][netbox-quayio] once a day.
 
-Do you have any questions? Before opening an issue on Github, please join the [Network To Code][ntc-slack] Slack and ask for help in our [`#netbox-docker`][netbox-docker-slack] channel.
+Do you have any questions?
+Before opening an issue on Github,
+please join the [our Slack][netbox-docker-slack] and ask for help in the [`#netbox-docker`][netbox-docker-slack-channel] channel.
 
 [github-stargazers]: https://github.com/netbox-community/netbox-docker/stargazers
 [github-release]: https://github.com/netbox-community/netbox-docker/releases
 [netbox-docker-microbadger]: https://microbadger.com/images/netboxcommunity/netbox
-[netbox-dockerhub]: https://hub.docker.com/r/netboxcommunity/netbox/tags/
+[netbox-dockerhub]: https://hub.docker.com/r/netboxcommunity/netbox/
 [netbox-docker-github]: https://github.com/netbox-community/netbox-docker/
-[ntc-slack]: http://slack.networktocode.com/
-[netbox-docker-slack]: https://slack.com/app_redirect?channel=netbox-docker&team=T09LQ7E9E
-[netbox-docker-license]: https://github.com/netbox-community/netbox-docker/blob/master/LICENSE
+[netbox-docker-slack]: https://join.slack.com/t/netdev-community/shared_invite/zt-mtts8g0n-Sm6Wutn62q_M4OdsaIycrQ
+[netbox-docker-slack-channel]: https://netdev-community.slack.com/archives/C01P0GEVBU7
+[netbox-slack-channel]: https://netdev-community.slack.com/archives/C01P0FRSXRV
+[netbox-docker-license]: https://github.com/netbox-community/netbox-docker/blob/release/LICENSE
+[netbox-quayio]: https://quay.io/repository/netboxcommunity/netbox
 
 ## Docker Tags
 
-* `vX.Y.Z`: Release builds, built from [releases of Netbox][netbox-releases].
-* `latest`: Release builds, built from [`master` branch of Netbox][netbox-master].
-* `snapshot`: Pre-release builds, built from the [`develop` branch of Netbox][netbox-develop].
-* `develop-X.Y`: Pre-release builds, built from the corresponding [branch of Netbox][netbox-branches].
+* `vX.Y.Z`: These are release builds, automatically built from [the corresponding releases of NetBox][netbox-releases].
+* `latest`: These are release builds, automatically built from [the `master` branch of NetBox][netbox-master].
+* `snapshot`: These are pre-release builds, automatically built from the [`develop` branch of NetBox][netbox-develop].
+* `develop-X.Y`: These are pre-release builds, automatically built from the corresponding [branch of NetBox][netbox-branches].
 
-Then there is currently one extra tags for each of the above labels:
+Then there is currently one extra tags for each of the above tags:
 
-* `-ldap`: Contains additional dependencies and configurations for connecting Netbox to an LDAP directroy.
+* `-ldap`: Contains additional dependencies and configurations for connecting NetBox to an LDAP directory.
   [Learn more about that in our wiki][netbox-docker-ldap].
+
+New images are built and published automatically every ~24h.
 
 [netbox-releases]: https://github.com/netbox-community/netbox/releases
 [netbox-master]: https://github.com/netbox-community/netbox/tree/master
@@ -43,113 +47,94 @@ Then there is currently one extra tags for each of the above labels:
 
 ## Quickstart
 
-To get Netbox up and running:
+To get NetBox Docker up and running run the following commands.
+There is a more complete [_Getting Started_ guide on our wiki][wiki-getting-started] which explains every step.
 
 ```bash
-git clone -b master https://github.com/netbox-community/netbox-docker.git
+git clone -b release https://github.com/netbox-community/netbox-docker.git
 cd netbox-docker
+tee docker-compose.override.yml <<EOF
+version: '3.4'
+services:
+  netbox:
+    ports:
+      - 8000:8080
+EOF
 docker-compose pull
-docker-compose up -d
+docker-compose up
 ```
 
-The application will be available after a few minutes.
-Use `docker-compose port nginx 8080` to find out where to connect to.
-
-```bash
-$ echo "http://$(docker-compose port nginx 8080)/"
-http://0.0.0.0:32768/
-
-# Open netbox in your default browser on macOS:
-$ open "http://$(docker-compose port nginx 8080)/"
-
-# Open netbox in your default browser on (most) linuxes:
-$ xdg-open "http://$(docker-compose port nginx 8080)/" &>/dev/null &
-```
-
-Alternatively, use something like [Reception][docker-reception] to connect to _docker-compose_ projects.
-
-Default credentials:
+The whole application will be available after a few minutes.
+Open the URL `http://0.0.0.0:8000/` in a web-browser.
+You should see the NetBox homepage.
+In the top-right corner you can login.
+The default credentials are:
 
 * Username: **admin**
 * Password: **admin**
 * API Token: **0123456789abcdef0123456789abcdef01234567**
 
+[wiki-getting-started]: https://github.com/netbox-community/netbox-docker/wiki/Getting-Started
 [docker-reception]: https://github.com/nxt-engineering/reception
-
-## Dependencies
-
-This project relies only on *Docker* and *docker-compose* meeting this requirements:
-
-* The *Docker version* must be at least `17.05`.
-* The *docker-compose version* must be at least `1.17.0`.
-
-To ensure this, compare the output of `docker --version` and `docker-compose --version` with the requirements above.
 
 ## Documentation
 
-Please refer [to our wiki on Github][netbox-docker-wiki] for further information on how to use this Netbox Docker image properly.
-It covers advanced topics such as using secret files, deployment to Kubernetes as well as NAPALM and LDAP configuration.
+Please refer [to our wiki on Github][netbox-docker-wiki] for further information on how to use this NetBox Docker image properly.
+It covers advanced topics such as using files for secrets, deployment to Kubernetes, monitoring and configuring NAPALM or LDAP.
 
 [netbox-docker-wiki]: https://github.com/netbox-community/netbox-docker/wiki/
 
-## Netbox Version
+## Getting Help
 
-The `docker-compose.yml` file is prepared to run a specific version of Netbox.
-To use this feature, set the environment-variable `VERSION` before launching `docker-compose`, as shown below.
-`VERSION` may be set to the name of
-[any tag of the `netboxcommunity/netbox` Docker image on Docker Hub][netbox-dockerhub].
+Feel free to ask questions in our [Github Community][netbox-community]
+or [join our Slack][netbox-docker-slack] and ask [in our channel `#netbox-docker`][netbox-docker-slack-channel],
+which is free to use and where there are almost always people online that can help you in the Slack channel.
 
-```bash
-export VERSION=v2.6.7
-docker-compose pull netbox
-docker-compose up -d
-```
+If you need help with using NetBox or developing for it or against it's API
+you may find [the `#netbox` channel][netbox-slack-channel] on the same Slack instance very helpful.
 
-You can also build a specific version of the Netbox Docker image yourself.
-`VERSION` can be any valid [git ref][git-ref] in that case.
+[netbox-community]: https://github.com/netbox-community/netbox-docker/discussions
 
-```bash
-export VERSION=v2.6.7
-./build.sh $VERSION
-docker-compose up -d
-```
+## Dependencies
 
-[git-ref]: https://git-scm.com/book/en/v2/Git-Internals-Git-References
-[netbox-github]: https://github.com/netbox-community/netbox/releases
+This project relies only on *Docker* and *docker-compose* meeting these requirements:
+
+* The *Docker version* must be at least `19.03`.
+* The *docker-compose version* must be at least `1.28.0`.
+
+To check the version installed on your system run `docker --version` and `docker-compose --version`.
 
 ## Breaking Changes
 
 From time to time it might become necessary to re-engineer the structure of this setup.
 Things like the `docker-compose.yml` file or your Kubernetes or OpenShift configurations have to be adjusted as a consequence.
+
 Since November 2019 each image built from this repo contains a `org.opencontainers.image.version` label.
 (The images contained labels since April 2018, although in November 2019 the labels' names changed.)
-You can check the label of your local image by running `docker inspect netboxcommunity/netbox:v2.6.7 --format "{{json .ContainerConfig.Labels}}"`.
+You can check the label of your local image by running `docker inspect netboxcommunity/netbox:v2.7.1 --format "{{json .Config.Labels}}"`.
 
 Please read [the release notes][releases] carefully when updating to a new image version.
 
 [releases]: https://github.com/netbox-community/netbox-docker/releases
 
-## Rebuilding & Publishing images
+## Rebuilding the Image
 
 `./build.sh` can be used to rebuild the Docker image. See `./build.sh --help` for more information.
 
-### Publishing Docker Images
+For more details on custom builds [consult our wiki][netbox-docker-wiki-build].
 
-New Docker images are built and published every 24h on the [Docker Build Infrastructure][docker-build-infra].
-`DOCKER_HUB.md` contains more information about the build infrastructure.
-
-[docker-build-infra]: https://hub.docker.com/r/netboxcommunity/netbox/builds/
+[netbox-docker-wiki-build]: https://github.com/netbox-community/netbox-docker/wiki/Build
 
 ## Tests
 
-To run the tests coming with Netbox, use the `docker-compose.yml` file as such:
+We have a test script.
+It runs NetBox's own unit tests and ensures that all initializers work:
 
 ```bash
-docker-compose run netbox ./manage.py test
+IMAGE=netboxcommunity/netbox:latest ./test.sh
 ```
 
-## About
+## Support
 
-This repository is currently maintained and funded by [nxt][nxt].
-
-[nxt]: https://nxt.engineering/en/
+This repository is currently maintained by the community.
+Please consider sponsoring the maintainers of this project.

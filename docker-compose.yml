@@ -5,43 +5,38 @@ services:
     depends_on:
     - postgres
     - redis
+    - redis-cache
     - netbox-worker
     env_file: env/netbox.env
+    user: '101'
     volumes:
     - ./startup_scripts:/opt/netbox/startup_scripts:z,ro
     - ./initializers:/opt/netbox/initializers:z,ro
     - ./configuration:/etc/netbox/config:z,ro
     - ./reports:/etc/netbox/reports:z,ro
     - ./scripts:/etc/netbox/scripts:z,ro
-    - netbox-nginx-config:/etc/netbox-nginx:z
-    - netbox-static-files:/opt/netbox/netbox/static:z
     - netbox-media-files:/opt/netbox/netbox/media:z
   netbox-worker:
     <<: *netbox
     depends_on:
-    - redis
+      - redis
     entrypoint:
-    - python3
-    - /opt/netbox/netbox/manage.py
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
     command:
-    - rqworker
-  nginx:
-    command: nginx -c /etc/netbox-nginx/nginx.conf
-    image: nginx:1.17-alpine
-    depends_on:
-    - netbox
-    ports:
-    - 8080
-    volumes:
-    - netbox-static-files:/opt/netbox/netbox/static:ro
-    - netbox-nginx-config:/etc/netbox-nginx/:ro
+      - rqworker
+    ports: []
+
+  # postgres
   postgres:
-    image: postgres:10.4-alpine
+    image: postgres:12-alpine
     env_file: env/postgres.env
     volumes:
     - netbox-postgres-data:/var/lib/postgresql/data
+
+  # redis
   redis:
-    image: redis:4-alpine
+    image: redis:6-alpine
     command:
     - sh
     - -c # this is to evaluate the $REDIS_PASSWORD from the env
@@ -49,14 +44,16 @@ services:
     env_file: env/redis.env
     volumes:
     - netbox-redis-data:/data
+  redis-cache:
+    image: redis:6-alpine
+    command:
+    - sh
+    - -c # this is to evaluate the $REDIS_PASSWORD from the env
+    - redis-server --requirepass $$REDIS_PASSWORD ## $$ because of docker-compose
+    env_file: env/redis-cache.env
+
 volumes:
-  netbox-static-files:
-    driver: local
-  netbox-nginx-config:
-    driver: local
   netbox-media-files:
-    driver: local
-  netbox-report-files:
     driver: local
   netbox-postgres-data:
     driver: local
