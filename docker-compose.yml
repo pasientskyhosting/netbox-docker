@@ -32,7 +32,6 @@ services:
     - postgres
     command:
     - /opt/netbox/housekeeping.sh
-
   # postgres
   postgres:
     image: postgres:13-alpine
