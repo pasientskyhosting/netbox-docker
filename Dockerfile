@@ -6,15 +6,18 @@ RUN apk add --no-cache \
       build-base \
       cargo \
       ca-certificates \
+      cmake \
       cyrus-sasl-dev \
+      git \
       graphviz \
       jpeg-dev \
       libevent-dev \
       libffi-dev \
-      openssl-dev \
       libxslt-dev \
+      make \
       musl-dev \
       openldap-dev \
+      openssl-dev \
       postgresql-dev \
       py3-pip \
       python3-dev \
@@ -23,6 +26,20 @@ RUN apk add --no-cache \
       pip \
       setuptools \
       wheel
+
+# Build libcrc32c for google-crc32c python module
+RUN git clone https://github.com/google/crc32c \
+    && cd crc32c \
+    && git submodule update --init --recursive \
+    && mkdir build \
+    && cd build \
+    && cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCRC32C_BUILD_TESTS=no \
+        -DCRC32C_BUILD_BENCHMARKS=no \
+        -DBUILD_SHARED_LIBS=yes \
+        .. \
+    && make all install
 
 ARG NETBOX_PATH
 COPY ${NETBOX_PATH}/requirements.txt requirements-container.txt /
@@ -45,16 +62,20 @@ RUN apk add --no-cache \
       libevent \
       libffi \
       libjpeg-turbo \
-      openssl \
       libxslt \
+      openssl \
       postgresql-libs \
-      python3 \
       py3-pip \
+      python3 \
+      tini \
       unit \
       unit-python3
 
 WORKDIR /opt
 
+COPY --from=builder /usr/local/lib/libcrc32c.* /usr/local/lib/
+COPY --from=builder /usr/local/include/crc32c /usr/local/include
+COPY --from=builder /usr/local/lib/cmake/Crc32c /usr/local/lib/cmake/
 COPY --from=builder /opt/netbox/venv /opt/netbox/venv
 
 ARG NETBOX_PATH
@@ -62,6 +83,7 @@ COPY ${NETBOX_PATH} /opt/netbox
 
 COPY docker/configuration.docker.py /opt/netbox/netbox/netbox/configuration.py
 COPY docker/docker-entrypoint.sh /opt/netbox/docker-entrypoint.sh
+COPY docker/housekeeping.sh /opt/netbox/housekeeping.sh
 COPY docker/launch-netbox.sh /opt/netbox/launch-netbox.sh
 COPY startup_scripts/ /opt/netbox/startup_scripts/
 COPY initializers/ /opt/netbox/initializers/
@@ -78,9 +100,9 @@ RUN mkdir -p static /opt/unit/state/ /opt/unit/tmp/ \
           --config-file /opt/netbox/mkdocs.yml --site-dir /opt/netbox/netbox/project-static/docs/ \
       && SECRET_KEY="dummy" /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py collectstatic --no-input
 
-ENTRYPOINT [ "/opt/netbox/docker-entrypoint.sh" ]
+ENTRYPOINT [ "/sbin/tini", "--" ]
 
-CMD [ "/opt/netbox/launch-netbox.sh" ]
+CMD [ "/opt/netbox/docker-entrypoint.sh", "/opt/netbox/launch-netbox.sh" ]
 
 LABEL ORIGINAL_TAG="" \
       NETBOX_GIT_BRANCH="" \

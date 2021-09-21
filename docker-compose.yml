@@ -19,14 +19,19 @@ services:
   netbox-worker:
     <<: *netbox
     depends_on:
-      - redis
-    entrypoint:
-      - /opt/netbox/venv/bin/python
-      - /opt/netbox/netbox/manage.py
+    - redis
+    - postgres
     command:
-      - rqworker
-    ports: []
-
+    - /opt/netbox/venv/bin/python
+    - /opt/netbox/netbox/manage.py
+    - rqworker
+  netbox-housekeeping:
+    <<: *netbox
+    depends_on:
+    - redis
+    - postgres
+    command:
+    - /opt/netbox/housekeeping.sh
   # postgres
   postgres:
     image: postgres:13-alpine
